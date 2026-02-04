@@ -22,7 +22,7 @@ A FastAPI-powered web application for running object detection on GeoTIFF files 
 ### 1. Install Dependencies
 
 ```bash
-cd web_app
+cd geo-web-app
 pip install -r requirements.txt
 ```
 
