@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GeoTIFF Object Detection</title>
+
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🗺️ GeoTIFF Object Detection</h1>
+            <p>Upload a GeoTIFF file to detect objects using AI</p>
+        </header>
+
+        <main>
+            <!-- Upload Section -->
+            <div id="upload-section" class="section">
+                <div class="upload-area" id="upload-area">
+                    <input type="file" id="file-input" accept=".tif,.tiff" hidden>
+                    <div class="upload-content">
+                        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="17 8 12 3 7 8"></polyline>
+                            <line x1="12" y1="3" x2="12" y2="15"></line>
+                        </svg>
+                        <h3>Drop GeoTIFF file here or click to browse</h3>
+                        <p class="text-muted">Supports .tif and .tiff files</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Preview Section -->
+            <div id="preview-section" class="section" style="display: none;">
+                <div class="section-header">
+                    <h2>Image Preview</h2>
+                    <div class="metadata" id="metadata"></div>
+                </div>
+
+                <div id="map" class="map-container"></div>
+
+                <div class="action-buttons">
+                    <button id="run-inference-btn" class="btn btn-primary">
+                        <span id="btn-text">🚀 Run Inference</span>
+                        <span id="btn-spinner" class="spinner" style="display: none;"></span>
+                    </button>
+                    <button id="toggle-image-btn" class="btn btn-secondary">🖼️ Hide Image</button>
+                    <button id="reset-btn" class="btn btn-secondary">↻ Upload New File</button>
+                </div>
+            </div>
+
+            <!-- Progress Section -->
+            <div id="progress-section" class="section" style="display: none;">
+                <h3>Processing...</h3>
+                <div class="progress-bar">
+                    <div id="progress-fill" class="progress-fill"></div>
+                </div>
+                <p id="progress-text" class="progress-text">Initializing...</p>
+            </div>
+
+            <!-- Results Section -->
+            <div id="results-section" class="section" style="display: none;">
+                <div class="section-header">
+                    <h2>Detection Results</h2>
+                    <div class="results-stats" id="results-stats"></div>
+                </div>
+
+                <p class="text-muted" style="margin-bottom: 15px;">💡 Click polygons to select them (red), then delete unwanted detections</p>
+
+                <div class="action-buttons">
+                    <button id="delete-selected-btn" class="btn btn-danger" style="display: none;">
+                        🗑️ Delete Selected
+                    </button>
+                    <button id="download-btn" class="btn btn-success">
+                        📥 Download GeoJSON
+                    </button>
+                    <button id="toggle-detections-btn" class="btn btn-secondary">
+                        👁️ Toggle Detections
+                    </button>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <p>Powered by FastAPI + PyTorch + Leaflet</p>
+        </footer>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- Custom JS -->
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Uploads
+static/uploads/*.tif
+static/uploads/*.png
+static/uploads/*.geojson
+
+# Checkpoints (add your actual checkpoint separately)
+checkpoints/*.pth
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
