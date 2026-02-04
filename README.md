@@ -26,17 +26,7 @@ cd web_app
 pip install -r requirements.txt
 ```
 
-### 2. Copy Your Model Checkpoint
-
-Copy your trained model checkpoint to the `checkpoints/` directory:
-
-```bash
-cp ../checkpoints/best_model.pth ./checkpoints/best_model.pth
-```
-
-Or wherever your trained model is located.
-
-### 3. Run the Application
+### 2. Run the Application
 
 ```bash
 python app.py
@@ -48,13 +38,13 @@ Or using uvicorn directly:
 uvicorn app:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### 4. Open in Browser
+### 3. Open in Browser
 
 Navigate to: **http://localhost:8000**
 
 ## Usage
 
-1. **Upload**: Drag and drop a `.tif` or `.tiff` file or click to browse
+1. **Upload**: Drag and drop a `.tif` or `.tiff` file or click to browse (example image provided in `static/images/crop_38.tif`)
 2. **Preview**: View the image bounds and high-resolution overlay on the map
 3. **Run Inference**: Click "Run Inference" and watch the real-time progress
 4. **View Results**: See detected objects overlaid on the map with live statistics
@@ -65,23 +55,6 @@ Navigate to: **http://localhost:8000**
    - View updated statistics showing remaining/deleted counts
 6. **Toggle Layers**: Show/hide the image overlay or detections as needed
 7. **Download**: Export filtered results as GeoJSON (excludes deleted detections)
-
-## Architecture
-
-```
-┌─────────────┐
-│   Browser   │
-│  (Leaflet)  │
-└─────┬───────┘
-      │ HTTP/WebSocket
-┌─────▼───────┐
-│   FastAPI   │
-│   Server    │
-├─────────────┤
-│ PyTorch     │
-│ Faster RCNN │
-└─────────────┘
-```
 
 ## API Endpoints
 
@@ -105,7 +78,6 @@ UPLOAD_DIR = BASE_DIR / "static" / "uploads"
 CHECKPOINT_PATH = BASE_DIR / "checkpoints" / "best_model.pth"
 
 # High-resolution overlay settings (in upload endpoint)
-max_size=8192,         # Maximum overlay dimension (px)
 format='JPEG',         # Output format
 quality=90             # JPEG quality (1-100)
 ```
@@ -195,4 +167,22 @@ Consider:
 
 ## License
 
-Same as parent project.
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
