@@ -128,13 +128,40 @@ toggleDetectionsBtn.addEventListener('click', () => {
     }
 });
 
-// Handle file upload
+// --- Log console helpers ---
+function appendLog(message, type = 'info') {
+    const entries = document.getElementById('log-entries');
+    if (!entries) return;
+
+    const entry = document.createElement('div');
+    entry.className = `log-entry log-${type}`;
+
+    const now = new Date();
+    const ts = now.toLocaleTimeString('en-US', { hour12: false });
+
+    entry.innerHTML = `<span class="log-time">${ts}</span><span class="log-msg">${message}</span>`;
+    entries.appendChild(entry);
+
+    // Auto-scroll to bottom
+    entries.scrollTop = entries.scrollHeight;
+}
+
+function clearLog() {
+    const entries = document.getElementById('log-entries');
+    if (entries) entries.innerHTML = '';
+}
+
+// Track the original filename across the two-phase upload
+let uploadedFilename = null;
+
+// Handle file upload (two-phase: XHR save → WS process)
 function handleFileUpload(file) {
     if (!file.name.toLowerCase().endsWith('.tif') && !file.name.toLowerCase().endsWith('.tiff')) {
         alert('Please upload a .tif or .tiff file');
         return;
     }
 
+    uploadedFilename = file.name;
     const formData = new FormData();
     formData.append('file', file);
 
@@ -143,93 +170,142 @@ function handleFileUpload(file) {
     progressSection.style.display = 'block';
     setStageIcon('upload');
     activeReassuranceMessages = uploadReassuranceMessages;
+    clearLog();
     updateProgress(0, 'Uploading file...');
+    appendLog('Starting upload...', 'status');
     startReassuranceTimer();
 
     const xhr = new XMLHttpRequest();
-    let processingInterval = null;
 
     // Track upload progress (0-50%)
     xhr.upload.addEventListener('progress', (e) => {
         if (e.lengthComputable) {
-            const uploadPercentage = Math.round((e.loaded / e.total) * 50); // Scale to 50%
-            updateProgress(uploadPercentage, `Uploading... ${Math.round((e.loaded / e.total) * 100)}%`);
+            const pct = Math.round((e.loaded / e.total) * 100);
+            const barPct = Math.round((e.loaded / e.total) * 50);
+            updateProgress(barPct, `Uploading... ${pct}%`);
         }
     });
 
-    // When upload completes, simulate processing progress (50-95%)
     xhr.upload.addEventListener('loadend', () => {
-        let processingProgress = 50;
-        updateProgress(processingProgress, 'Processing image and generating overlay...');
-
-        // Simulate gradual progress while server processes
-        processingInterval = setInterval(() => {
-            if (processingProgress < 95) {
-                processingProgress += 1;
-                updateProgress(processingProgress, 'Processing image and generating overlay...');
-            }
-        }, 200); // Update every 200ms
+        updateProgress(50, 'File saved on server. Connecting...');
+        appendLog('Upload complete. File saved on server.', 'status');
     });
 
-    // Handle completion
+    // On XHR success → open WebSocket for processing
     xhr.addEventListener('load', () => {
-        // Clear processing interval
-        if (processingInterval) {
-            clearInterval(processingInterval);
-        }
-
         if (xhr.status === 200) {
             try {
                 const data = JSON.parse(xhr.responseText);
                 currentFileId = data.file_id;
-
-                // Update to 100%
-                updateProgress(100, 'Complete!');
-
-                // Show preview after a brief delay
-                stopReassuranceTimer();
-                setTimeout(() => {
-                    progressSection.style.display = 'none';
-                    displayPreview(data);
-                }, 500);
-
+                appendLog(`File ID: ${data.file_id}`, 'info');
+                startProcessingWebSocket(data.file_id);
             } catch (error) {
                 console.error('Parse error:', error);
+                appendLog('Error parsing server response.', 'error');
                 alert('Error processing response');
                 resetUploadUI();
             }
         } else {
             try {
                 const error = JSON.parse(xhr.responseText);
+                appendLog(`Upload failed: ${error.detail || 'Unknown error'}`, 'error');
                 alert(`Upload failed: ${error.detail || 'Unknown error'}`);
             } catch {
+                appendLog(`Upload failed with status ${xhr.status}`, 'error');
                 alert(`Upload failed with status: ${xhr.status}`);
             }
             resetUploadUI();
         }
     });
 
-    // Handle errors
     xhr.addEventListener('error', () => {
-        if (processingInterval) {
-            clearInterval(processingInterval);
-        }
+        appendLog('Network error during upload.', 'error');
         alert('Upload failed. Please try again.');
         resetUploadUI();
     });
 
-    // Handle abort
     xhr.addEventListener('abort', () => {
-        if (processingInterval) {
-            clearInterval(processingInterval);
-        }
+        appendLog('Upload cancelled.', 'error');
         alert('Upload cancelled.');
         resetUploadUI();
     });
 
-    // Send request
     xhr.open('POST', '/upload');
     xhr.send(formData);
+}
+
+// Phase 2: process the uploaded file via WebSocket (preview, overlay, bounds)
+function startProcessingWebSocket(fileId) {
+    setStageIcon('overlay');
+    updateProgress(52, 'Processing file...');
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws/process/${fileId}`;
+    const processWs = new WebSocket(wsUrl);
+
+    // Track log messages for progress bar (server sends ~7 log messages)
+    let logCount = 0;
+    const totalExpectedLogs = 7;
+
+    processWs.onopen = () => {
+        showWsIndicator(true);
+        appendLog('WebSocket connected. Processing starting...', 'status');
+    };
+
+    processWs.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+
+        switch (msg.type) {
+            case 'log':
+                logCount++;
+                appendLog(msg.message, 'info');
+                // Map log count to progress 52-95%
+                const pct = Math.min(52 + Math.round((logCount / totalExpectedLogs) * 43), 95);
+                updateProgress(pct, msg.message);
+                break;
+
+            case 'ping':
+                flashWsPing();
+                break;
+
+            case 'complete':
+                appendLog('Processing complete.', 'status');
+                updateProgress(100, 'Complete!');
+                stopReassuranceTimer();
+                // Build the data object displayPreview expects
+                const previewData = {
+                    file_id: msg.file_id,
+                    filename: uploadedFilename,
+                    preview_url: msg.preview_url,
+                    overlay_url: msg.overlay_url,
+                    metadata: msg.metadata,
+                    bounds: msg.bounds
+                };
+                setTimeout(() => {
+                    hideWsIndicator();
+                    progressSection.style.display = 'none';
+                    displayPreview(previewData);
+                }, 800);
+                break;
+
+            case 'error':
+                appendLog(`Error: ${msg.message}`, 'error');
+                alert(`Processing error: ${msg.message}`);
+                resetUploadUI();
+                break;
+        }
+    };
+
+    processWs.onerror = () => {
+        showWsIndicator(false);
+        appendLog('WebSocket connection error.', 'error');
+        alert('Processing connection error. Please try again.');
+        resetUploadUI();
+    };
+
+    processWs.onclose = () => {
+        hideWsIndicator();
+    };
 }
 
 // Reset upload UI
@@ -350,6 +426,8 @@ function runInference(fileId) {
     // Start reassurance for long inference (use inference-specific messages)
     setStageIcon('processing');
     activeReassuranceMessages = inferenceReassuranceMessages;
+    clearLog();
+    appendLog('Starting inference...', 'status');
     startReassuranceTimer();
 
     // Create WebSocket connection
@@ -380,28 +458,38 @@ function runInference(fileId) {
     };
 }
 
-// Handle WebSocket messages
+// Handle WebSocket messages (inference)
 function handleWebSocketMessage(message) {
     switch (message.type) {
         case 'status':
+            appendLog(message.message, 'status');
             updateProgress(0, message.message);
+            break;
+
+        case 'log':
+            appendLog(message.message, 'info');
             break;
 
         case 'progress':
             updateProgress(message.percentage, `Processing tile ${message.current}/${message.total}...`);
+            // Log every 10th tile to avoid flooding the console
+            if (message.current === 1 || message.current === message.total || message.current % 10 === 0) {
+                appendLog(`Tile ${message.current}/${message.total} (${message.percentage}%)`, 'progress');
+            }
             break;
 
         case 'complete':
+            appendLog('Inference complete.', 'status');
             handleInferenceComplete(message);
             break;
 
         case 'error':
+            appendLog(`Error: ${message.message}`, 'error');
             alert(`Error: ${message.message}`);
             resetInferenceUI();
             break;
 
         case 'ping':
-            // Keep-alive from server — flash the connection dot
             flashWsPing();
             break;
     }

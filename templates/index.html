@@ -83,10 +83,17 @@
                 <p id="progress-text" class="progress-text">Initializing...</p>
                 <p id="progress-reassurance" class="progress-reassurance"></p>
 
-                <!-- WebSocket connection indicator -->
-                <div id="ws-indicator" class="ws-indicator" style="display: none;">
-                    <span class="ws-dot"></span>
-                    <span class="ws-label">Connected</span>
+                <!-- Server log console -->
+                <div id="log-console" class="log-console">
+                    <div class="log-header">
+                        <span class="log-title">Server Log</span>
+                        <!-- WebSocket connection indicator -->
+                        <div id="ws-indicator" class="ws-indicator" style="display: none;">
+                            <span class="ws-dot"></span>
+                            <span class="ws-label">Connected</span>
+                        </div>
+                    </div>
+                    <div id="log-entries" class="log-entries"></div>
                 </div>
             </div>
 

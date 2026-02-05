@@ -81,58 +81,118 @@ async def favicon():
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
     """
-    Upload a GeoTIFF file.
+    Upload a GeoTIFF file (save only).
 
     Returns:
-        JSON with file_id, preview image, and metadata
+        JSON with file_id and filename. Heavy processing happens via /ws/process/{file_id}.
     """
-    # Validate file extension
     if not (file.filename.lower().endswith('.tif') or file.filename.lower().endswith('.tiff')):
         raise HTTPException(status_code=400, detail="Only .tif and .tiff files are supported")
 
-    # Generate unique file ID
     file_id = str(uuid.uuid4())
     file_path = UPLOAD_DIR / f"{file_id}.tif"
 
-    # Save uploaded file
     async with aiofiles.open(file_path, 'wb') as f:
         content = await file.read()
         await f.write(content)
 
-    try:
-        # Generate preview image
-        preview_bytes, metadata = generate_preview_image(str(file_path), max_size=4096)
+    return JSONResponse({"file_id": file_id, "filename": file.filename})
 
-        # Save preview
+
+# Store original filenames so the process WS can include them
+_uploaded_filenames: dict = {}
+
+
+@app.websocket("/ws/process/{file_id}")
+async def websocket_process(websocket: WebSocket, file_id: str):
+    """
+    WebSocket endpoint for processing an uploaded GeoTIFF.
+    Streams real log messages as preview, overlay, and bounds are generated.
+    """
+    await websocket.accept()
+
+    file_path = UPLOAD_DIR / f"{file_id}.tif"
+    if not file_path.exists():
+        await websocket.send_json({"type": "error", "message": "File not found"})
+        await websocket.close()
+        return
+
+    # Keep-alive ping
+    async def keep_alive():
+        try:
+            while websocket.client_state == WebSocketState.CONNECTED:
+                await websocket.send_json({"type": "ping"})
+                await asyncio.sleep(15)
+        except Exception:
+            pass
+
+    ping_task = asyncio.create_task(keep_alive())
+    loop = asyncio.get_event_loop()
+
+    async def send_log(message: str):
+        await websocket.send_json({"type": "log", "message": message})
+
+    try:
+        await send_log("Processing started.")
+
+        # --- Preview ---
+        await send_log("Generating preview image...")
+        preview_bytes, metadata = await loop.run_in_executor(
+            None, lambda: generate_preview_image(str(file_path), max_size=4096)
+        )
         preview_path = UPLOAD_DIR / f"{file_id}_preview.png"
         async with aiofiles.open(preview_path, 'wb') as f:
             await f.write(preview_bytes)
+        await send_log(f"Preview saved ({metadata['width']}x{metadata['height']} source).")
 
-        # Generate high-resolution overlay image
-        overlay_bytes = generate_overlay_image(str(file_path), max_size=8192, format='JPEG', quality=90)
-
-        # Save overlay
+        # --- Overlay ---
+        await send_log("Generating high-resolution overlay...")
+        await send_log("Reprojecting for map display...")
+        overlay_bytes = await loop.run_in_executor(
+            None, lambda: generate_overlay_image(str(file_path), max_size=8192, format='JPEG', quality=90)
+        )
         overlay_path = UPLOAD_DIR / f"{file_id}_overlay.jpg"
         async with aiofiles.open(overlay_path, 'wb') as f:
             await f.write(overlay_bytes)
+        overlay_size_mb = len(overlay_bytes) / (1024 * 1024)
+        await send_log(f"Overlay saved ({overlay_size_mb:.1f} MB).")
 
-        # Get bounds for map
-        bounds_geojson = get_tif_bounds_geojson(str(file_path))
+        # --- Bounds ---
+        await send_log("Calculating geo bounds...")
+        bounds_geojson = await loop.run_in_executor(
+            None, lambda: get_tif_bounds_geojson(str(file_path))
+        )
+        await send_log("Bounds calculated. Ready.")
 
-        return JSONResponse({
+        # Send complete with all metadata
+        await websocket.send_json({
+            "type": "complete",
             "file_id": file_id,
-            "filename": file.filename,
             "preview_url": f"/static/uploads/{file_id}_preview.png",
             "overlay_url": f"/static/uploads/{file_id}_overlay.jpg",
             "metadata": metadata,
             "bounds": bounds_geojson
         })
 
+    except WebSocketDisconnect:
+        print(f"Process WS disconnected for {file_id}")
     except Exception as e:
+        try:
+            await websocket.send_json({
+                "type": "error",
+                "message": f"Processing error: {str(e)}"
+            })
+        except Exception:
+            pass
         # Cleanup on error
         if file_path.exists():
             file_path.unlink()
-        raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
+    finally:
+        ping_task.cancel()
+        try:
+            await websocket.close()
+        except Exception:
+            pass
 
 
 @app.websocket("/ws/inference/{file_id}")
@@ -186,6 +246,7 @@ async def websocket_inference(websocket: WebSocket, file_id: str):
 
         # Send starting message
         await websocket.send_json({"type": "status", "message": "Starting inference..."})
+        await websocket.send_json({"type": "log", "message": "Model loaded. Beginning tile-based inference..."})
 
         # Run inference in executor to avoid blocking the event loop.
         # The model calls progress_callback synchronously from the thread,
@@ -219,14 +280,18 @@ async def websocket_inference(websocket: WebSocket, file_id: str):
         else:
             # Merge overlapping geometries
             await websocket.send_json({"type": "status", "message": "Merging detections..."})
+            await websocket.send_json({"type": "log", "message": f"Raw detections: {len(detections_gdf)}. Merging overlaps (buffer=0.5)..."})
             merged_gdf = merge_overlapping_geometries(detections_gdf, buffer_dist=0.5)
+            await websocket.send_json({"type": "log", "message": f"Merged to {len(merged_gdf)} detections."})
 
             # Convert to GeoJSON for Leaflet
+            await websocket.send_json({"type": "log", "message": "Converting to GeoJSON (WGS84)..."})
             geojson = gdf_to_geojson_for_leaflet(merged_gdf)
 
             # Save results
             results_path = UPLOAD_DIR / f"{file_id}_detections.geojson"
             merged_gdf.to_file(results_path, driver='GeoJSON')
+            await websocket.send_json({"type": "log", "message": "Results saved. Done."})
 
             await websocket.send_json({
                 "type": "complete",
