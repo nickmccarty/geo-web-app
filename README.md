@@ -2,6 +2,14 @@
 
 A FastAPI-powered web application for running object detection on GeoTIFF files using your trained PyTorch model.
 
+<p align="center">
+  <img
+    src="https://github.com/nickmccarty/geo-web-app/raw/refs/heads/main/static/images/demo-video.gif"
+    alt="Geo Web App demo"
+    width="500"
+  />
+</p>
+
 ## Features
 
 - 📤 **Drag & drop** GeoTIFF upload with progress tracking
