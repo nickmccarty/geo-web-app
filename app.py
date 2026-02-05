@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, UploadFile, File, WebSocket, WebSocketDisconnect, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from starlette.websockets import WebSocketState
+from fastapi.responses import HTMLResponse, JSONResponse, Response, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi import Request
@@ -50,7 +51,7 @@ async def startup_event():
     global model
 
     if not CHECKPOINT_PATH.exists():
-        print(f"⚠️  Warning: Model checkpoint not found at {CHECKPOINT_PATH}")
+        print(f"Warning: Model checkpoint not found at {CHECKPOINT_PATH}")
         print("Please copy your best_model.pth to the checkpoints/ directory")
     else:
         print("Loading model...")
@@ -59,7 +60,7 @@ async def startup_event():
             num_classes=2,
             device="cuda"
         )
-        print("✓ Model loaded successfully")
+        print("Model loaded successfully")
 
     # Cleanup old files
     cleanup_old_files(str(UPLOAD_DIR), max_age_hours=1)
@@ -69,6 +70,12 @@ async def startup_event():
 async def index(request: Request):
     """Serve the main page."""
     return templates.TemplateResponse("index.html", {"request": request})
+
+
+@app.get("/favicon.ico")
+async def favicon():
+    """Serve the favicon to avoid 404."""
+    return FileResponse("static/favicon.ico")
 
 
 @app.post("/upload")
@@ -94,7 +101,7 @@ async def upload_file(file: UploadFile = File(...)):
 
     try:
         # Generate preview image
-        preview_bytes, metadata = generate_preview_image(str(file_path))
+        preview_bytes, metadata = generate_preview_image(str(file_path), max_size=4096)
 
         # Save preview
         preview_path = UPLOAD_DIR / f"{file_id}_preview.png"
@@ -156,8 +163,19 @@ async def websocket_inference(websocket: WebSocket, file_id: str):
         await websocket.close()
         return
 
+    # Keep-alive ping to prevent WebSocket timeout on large files
+    async def keep_alive():
+        try:
+            while websocket.client_state == WebSocketState.CONNECTED:
+                await websocket.send_json({"type": "ping"})
+                await asyncio.sleep(15)
+        except Exception:
+            pass
+
+    ping_task = asyncio.create_task(keep_alive())
+
     try:
-        # Progress callback
+        # Progress callback (async, called from sync thread via run_coroutine_threadsafe)
         async def progress_callback(current: int, total: int):
             await websocket.send_json({
                 "type": "progress",
@@ -169,12 +187,13 @@ async def websocket_inference(websocket: WebSocket, file_id: str):
         # Send starting message
         await websocket.send_json({"type": "status", "message": "Starting inference..."})
 
-        # Run inference in executor to avoid blocking
+        # Run inference in executor to avoid blocking the event loop.
+        # The model calls progress_callback synchronously from the thread,
+        # so we bridge it with run_coroutine_threadsafe.
         loop = asyncio.get_event_loop()
 
         def run_inference():
             def sync_progress(current, total):
-                # Schedule async callback
                 asyncio.run_coroutine_threadsafe(
                     progress_callback(current, total),
                     loop
@@ -219,12 +238,19 @@ async def websocket_inference(websocket: WebSocket, file_id: str):
     except WebSocketDisconnect:
         print(f"WebSocket disconnected for {file_id}")
     except Exception as e:
-        await websocket.send_json({
-            "type": "error",
-            "message": f"Inference error: {str(e)}"
-        })
+        try:
+            await websocket.send_json({
+                "type": "error",
+                "message": f"Inference error: {str(e)}"
+            })
+        except Exception:
+            pass
     finally:
-        await websocket.close()
+        ping_task.cancel()
+        try:
+            await websocket.close()
+        except Exception:
+            pass
 
 
 @app.get("/download/{file_id}")

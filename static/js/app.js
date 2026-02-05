@@ -8,6 +8,32 @@ let allDetections = null; // Store all detections GeoJSON
 let selectedFeatures = new Set(); // Track selected feature indices
 let deletedFeatures = new Set(); // Track deleted feature indices
 
+// Progress timing state
+let progressStartTime = null;
+let reassuranceTimer = null;
+let reassuranceIndex = 0;
+
+const uploadReassuranceMessages = [
+    "Large files take a bit longer — everything is running normally.",
+    "Still working — generating the high-resolution overlay for your map.",
+    "This is a good time to grab a coffee. We'll be here when you get back.",
+    "No errors — just crunching through a lot of pixels.",
+    "Almost there... large GeoTIFFs need extra time for reprojection.",
+    "Still going strong. Hang tight."
+];
+
+const inferenceReassuranceMessages = [
+    "The model is scanning your image tile by tile — this is normal.",
+    "Large images have many tiles to process. The connection is healthy.",
+    "Still running inference — grab a coffee, we'll keep at it.",
+    "No errors — each tile takes a moment to run through the neural network.",
+    "Progress will jump in bursts as tiles complete. Patience pays off.",
+    "The WebSocket is alive and well. Processing continues in the background."
+];
+
+// Which message set to use
+let activeReassuranceMessages = uploadReassuranceMessages;
+
 // DOM Elements
 const uploadArea = document.getElementById('upload-area');
 const fileInput = document.getElementById('file-input');
@@ -115,7 +141,10 @@ function handleFileUpload(file) {
     // Show progress section
     uploadSection.style.display = 'none';
     progressSection.style.display = 'block';
+    setStageIcon('upload');
+    activeReassuranceMessages = uploadReassuranceMessages;
     updateProgress(0, 'Uploading file...');
+    startReassuranceTimer();
 
     const xhr = new XMLHttpRequest();
     let processingInterval = null;
@@ -158,6 +187,7 @@ function handleFileUpload(file) {
                 updateProgress(100, 'Complete!');
 
                 // Show preview after a brief delay
+                stopReassuranceTimer();
                 setTimeout(() => {
                     progressSection.style.display = 'none';
                     displayPreview(data);
@@ -204,6 +234,7 @@ function handleFileUpload(file) {
 
 // Reset upload UI
 function resetUploadUI() {
+    stopReassuranceTimer();
     progressSection.style.display = 'none';
     uploadSection.style.display = 'block';
 }
@@ -274,6 +305,37 @@ function initializeMap(data) {
     }).addTo(map);
 }
 
+// WebSocket indicator helpers
+function showWsIndicator(connected) {
+    const indicator = document.getElementById('ws-indicator');
+    if (!indicator) return;
+    indicator.style.display = 'inline-flex';
+    if (connected) {
+        indicator.classList.add('connected');
+        indicator.querySelector('.ws-label').textContent = 'Connected';
+    } else {
+        indicator.classList.remove('connected');
+        indicator.querySelector('.ws-label').textContent = 'Disconnected';
+    }
+}
+
+function hideWsIndicator() {
+    const indicator = document.getElementById('ws-indicator');
+    if (indicator) {
+        indicator.style.display = 'none';
+        indicator.classList.remove('connected', 'ping');
+    }
+}
+
+function flashWsPing() {
+    const indicator = document.getElementById('ws-indicator');
+    if (!indicator) return;
+    indicator.classList.remove('ping');
+    // Force reflow so the animation restarts
+    void indicator.offsetWidth;
+    indicator.classList.add('ping');
+}
+
 // Run inference via WebSocket
 function runInference(fileId) {
     // Disable button
@@ -285,6 +347,11 @@ function runInference(fileId) {
     progressSection.style.display = 'block';
     resultsSection.style.display = 'none';
 
+    // Start reassurance for long inference (use inference-specific messages)
+    setStageIcon('processing');
+    activeReassuranceMessages = inferenceReassuranceMessages;
+    startReassuranceTimer();
+
     // Create WebSocket connection
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws/inference/${fileId}`;
@@ -292,6 +359,7 @@ function runInference(fileId) {
 
     ws.onopen = () => {
         console.log('WebSocket connected');
+        showWsIndicator(true);
     };
 
     ws.onmessage = (event) => {
@@ -301,12 +369,14 @@ function runInference(fileId) {
 
     ws.onerror = (error) => {
         console.error('WebSocket error:', error);
+        showWsIndicator(false);
         alert('Connection error. Please try again.');
         resetInferenceUI();
     };
 
     ws.onclose = () => {
         console.log('WebSocket closed');
+        hideWsIndicator();
     };
 }
 
@@ -329,7 +399,66 @@ function handleWebSocketMessage(message) {
             alert(`Error: ${message.message}`);
             resetInferenceUI();
             break;
+
+        case 'ping':
+            // Keep-alive from server — flash the connection dot
+            flashWsPing();
+            break;
     }
+}
+
+// Switch the active stage SVG icon
+function setStageIcon(stage) {
+    const icons = document.querySelectorAll('.stage-svg');
+    icons.forEach(svg => svg.classList.remove('active'));
+
+    const heading = document.getElementById('progress-heading');
+    switch (stage) {
+        case 'upload':
+            document.getElementById('svg-upload').classList.add('active');
+            heading.textContent = 'Uploading';
+            break;
+        case 'processing':
+            document.getElementById('svg-processing').classList.add('active');
+            heading.textContent = 'Processing';
+            break;
+        case 'overlay':
+            document.getElementById('svg-overlay').classList.add('active');
+            heading.textContent = 'Generating Overlay';
+            break;
+    }
+}
+
+// Start the reassurance message cycle
+function startReassuranceTimer() {
+    stopReassuranceTimer();
+    progressStartTime = Date.now();
+    reassuranceIndex = 0;
+    const el = document.getElementById('progress-reassurance');
+    if (el) el.textContent = '';
+
+    // Show first message after 20 seconds, then cycle every 25s
+    reassuranceTimer = setTimeout(function tick() {
+        const el = document.getElementById('progress-reassurance');
+        if (el && reassuranceIndex < activeReassuranceMessages.length) {
+            el.textContent = activeReassuranceMessages[reassuranceIndex];
+            reassuranceIndex++;
+        } else if (el) {
+            reassuranceIndex = 0;
+            el.textContent = activeReassuranceMessages[reassuranceIndex];
+            reassuranceIndex++;
+        }
+        reassuranceTimer = setTimeout(tick, 25000);
+    }, 20000);
+}
+
+function stopReassuranceTimer() {
+    if (reassuranceTimer) {
+        clearTimeout(reassuranceTimer);
+        reassuranceTimer = null;
+    }
+    const el = document.getElementById('progress-reassurance');
+    if (el) el.textContent = '';
 }
 
 // Update progress bar
@@ -339,35 +468,43 @@ function updateProgress(percentage, text) {
 
     progressFill.style.width = `${percentage}%`;
     progressText.textContent = text;
+
+    // Auto-detect stage from the text and switch icon
+    if (text.toLowerCase().includes('upload')) {
+        setStageIcon('upload');
+    } else if (text.toLowerCase().includes('overlay') || text.toLowerCase().includes('processing image')) {
+        setStageIcon('overlay');
+    } else if (text.toLowerCase().includes('tile') || text.toLowerCase().includes('inference') || text.toLowerCase().includes('merging')) {
+        setStageIcon('processing');
+    }
 }
 
 // Handle inference completion
 function handleInferenceComplete(message) {
-    // Hide progress
+    // Stop reassurance messages
+    stopReassuranceTimer();
+
+    // 1. Hide the progress UI
     progressSection.style.display = 'none';
 
-    // Show results
+    // 2. Show the results section
     resultsSection.style.display = 'block';
 
-    // Add detections to map
+    // 3. Mark progress as 100 % (nice for the user)
+    updateProgress(100, 'Complete!');
+
+    // 4. Render detections on the map
     if (message.detections && message.detections.features.length > 0) {
         addDetectionsToMap(message.detections);
-
-        // Update stats (initial state)
         updateDetectionStats();
     } else {
-        // No detections found
-        const statsDiv = document.getElementById('results-stats');
-        statsDiv.innerHTML = `
-            <div class="stat-item">
-                <strong>0</strong> objects detected
-            </div>
-        `;
+        console.warn('No detections returned');
     }
 
-    // Reset button
+    // Re-enable the inference button
     resetInferenceUI();
 }
+
 
 // Add detections to map
 function addDetectionsToMap(geojson) {
@@ -537,7 +674,7 @@ function updateDetectionStats() {
 
     let statsHTML = `
         <div class="stat-item">
-            <strong>${remainingCount}</strong> objects remaining
+            <strong>${remainingCount}</strong> objects detected
         </div>
     `;
 
@@ -579,6 +716,8 @@ function downloadFilteredGeoJSON() {
 
 // Reset inference UI
 function resetInferenceUI() {
+    stopReassuranceTimer();
+    hideWsIndicator();
     runInferenceBtn.disabled = false;
     document.getElementById('btn-text').style.display = 'inline';
     document.getElementById('btn-spinner').style.display = 'none';

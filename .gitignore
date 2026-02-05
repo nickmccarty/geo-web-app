@@ -16,7 +16,7 @@ static/uploads/*.png
 static/uploads/*.geojson
 
 # Checkpoints (add your actual checkpoint separately)
-checkpoints/*.pth
+# checkpoints/*.pth
 
 # IDE
 .vscode/

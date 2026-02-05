@@ -1,4 +1,15 @@
 /* Global Styles */
+@import url('https://fonts.googleapis.com/css2?family=Inconsolata:wght@400;700&display=swap');
+
+
+/* Glassmorphism helper */
+.glass {
+    background: rgba(255,255,255,0.12);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+}
 * {
     margin: 0;
     padding: 0;
@@ -6,8 +17,8 @@
 }
 
 body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    font-family: 'Inconsolata', monospace;
+    background: linear-gradient(135deg, #1e3a8a 0%, #2c3e50 100%);
     min-height: 100vh;
     padding: 20px;
 }
@@ -15,28 +26,36 @@ body {
 .container {
     max-width: 1400px;
     margin: 0 auto;
-    background: white;
+    background: rgba(255,255,255,0.12);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
     border-radius: 16px;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
     overflow: hidden;
 }
 
 /* Header */
-header {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
+.app-header {
+    background: rgba(255,255,255,0.12);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    color: #333;
     padding: 40px;
     text-align: center;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
 }
 
-header h1 {
+.app-header h1 {
     font-size: 2.5rem;
     margin-bottom: 10px;
+    color: #fff;
+    font-family: 'Inconsolata', monospace;
 }
 
-header p {
+.app-header p {
     font-size: 1.1rem;
     opacity: 0.9;
+    color: #fff;
 }
 
 /* Main Content */
@@ -58,19 +77,21 @@ main {
 }
 
 .section-header h2 {
-    color: #333;
+    color: #fff;
     font-size: 1.8rem;
 }
 
 /* Upload Area */
 .upload-area {
+    background: rgba(255,255,255,0.12);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
     border: 3px dashed #667eea;
     border-radius: 12px;
     padding: 60px 20px;
     text-align: center;
     cursor: pointer;
     transition: all 0.3s ease;
-    background: #f8f9ff;
 }
 
 .upload-area:hover {
@@ -89,13 +110,13 @@ main {
 }
 
 .upload-content h3 {
-    color: #333;
+    color: #fff;
     margin-bottom: 10px;
     font-size: 1.3rem;
 }
 
 .text-muted {
-    color: #666;
+    color: rgba(255, 255, 255, 0.7);
     font-size: 0.95rem;
 }
 
@@ -121,6 +142,9 @@ main {
 
 /* Map Container */
 .map-container {
+    background: rgba(255,255,255,0.12);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
     height: 500px;
     border-radius: 12px;
     overflow: hidden;
@@ -154,7 +178,7 @@ main {
 }
 
 .btn-primary {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #1e3a8a 0%, #2c3e50 100%);
     color: white;
 }
 
@@ -204,11 +228,126 @@ main {
     to { transform: rotate(360deg); }
 }
 
+/* Progress Section */
+.progress-section {
+    text-align: center;
+    padding: 40px 20px;
+}
+
+.progress-visual {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-bottom: 24px;
+}
+
+.progress-heading {
+    color: #fff;
+    font-size: 1.4rem;
+    margin-top: 12px;
+}
+
+/* Stage SVG icons */
+.stage-icon {
+    position: relative;
+    width: 100px;
+    height: 100px;
+}
+
+.stage-svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    transform: scale(0.8);
+    transition: opacity 0.5s ease, transform 0.5s ease;
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.stage-svg.active {
+    opacity: 1;
+    transform: scale(1);
+}
+
+/* Pulse ring */
+.pulse-ring {
+    stroke: rgba(102, 126, 234, 0.25);
+    stroke-width: 2;
+    fill: none;
+    animation: pulse-ring 2.5s ease-in-out infinite;
+}
+
+@keyframes pulse-ring {
+    0%, 100% { stroke-width: 2; stroke: rgba(102, 126, 234, 0.2); }
+    50% { stroke-width: 4; stroke: rgba(102, 126, 234, 0.5); }
+}
+
+/* Upload icon */
+#svg-upload .icon-path {
+    stroke: #667eea;
+    stroke-width: 3;
+    animation: float-up 1.8s ease-in-out infinite;
+}
+
+@keyframes float-up {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-4px); }
+}
+
+/* Processing / scan icon */
+#svg-processing .scan-line {
+    stroke: #667eea;
+    stroke-width: 2;
+    fill: none;
+}
+
+#svg-processing .scan-beam {
+    stroke: #00e676;
+    stroke-width: 2;
+    animation: scan-sweep 2s ease-in-out infinite;
+    transform-origin: center;
+}
+
+@keyframes scan-sweep {
+    0% { transform: translateY(-18px); opacity: 0.4; }
+    50% { transform: translateY(18px); opacity: 1; }
+    100% { transform: translateY(-18px); opacity: 0.4; }
+}
+
+#svg-processing .scan-dot {
+    fill: #00e676;
+    animation: scan-dot-pulse 2s ease-in-out infinite;
+}
+
+@keyframes scan-dot-pulse {
+    0%, 100% { r: 2; opacity: 0.5; }
+    50% { r: 5; opacity: 1; }
+}
+
+/* Overlay / layers icon */
+#svg-overlay .layer {
+    stroke: #667eea;
+    stroke-width: 2;
+    fill: rgba(102, 126, 234, 0.1);
+}
+
+.layer-1 { animation: layer-shift 2.2s ease-in-out infinite; }
+.layer-2 { animation: layer-shift 2.2s ease-in-out 0.15s infinite; }
+.layer-3 { animation: layer-shift 2.2s ease-in-out 0.3s infinite; }
+
+@keyframes layer-shift {
+    0%, 100% { transform: translateY(0); opacity: 0.6; }
+    50% { transform: translateY(-4px); opacity: 1; }
+}
+
 /* Progress Bar */
 .progress-bar {
     width: 100%;
     height: 30px;
-    background: #e0e0e0;
+    background: rgba(255, 255, 255, 0.15);
     border-radius: 15px;
     overflow: hidden;
     margin: 20px 0;
@@ -216,16 +355,85 @@ main {
 
 .progress-fill {
     height: 100%;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #667eea 0%, #00e676 100%);
+    background-size: 200% 100%;
+    animation: shimmer 2s linear infinite;
     transition: width 0.3s ease;
     width: 0%;
 }
 
+@keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
 .progress-text {
     text-align: center;
-    color: #555;
+    color: #fff;
     font-size: 1rem;
     margin-top: 10px;
+}
+
+/* Reassurance message for long operations */
+.progress-reassurance {
+    text-align: center;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.9rem;
+    margin-top: 16px;
+    min-height: 1.4em;
+    transition: opacity 0.6s ease;
+    font-style: italic;
+}
+
+/* WebSocket connection indicator */
+.ws-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 20px;
+    padding: 6px 16px;
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.ws-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #555;
+    transition: background 0.3s ease, box-shadow 0.3s ease;
+}
+
+.ws-indicator.connected .ws-dot {
+    background: #00e676;
+    box-shadow: 0 0 6px rgba(0, 230, 118, 0.6);
+    animation: dot-breathe 3s ease-in-out infinite;
+}
+
+.ws-indicator.connected.ping .ws-dot {
+    animation: dot-ping-flash 0.4s ease-out;
+}
+
+.ws-label {
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 0.8rem;
+    letter-spacing: 0.02em;
+}
+
+.ws-indicator.connected .ws-label {
+    color: rgba(255, 255, 255, 0.85);
+}
+
+@keyframes dot-breathe {
+    0%, 100% { box-shadow: 0 0 4px rgba(0, 230, 118, 0.4); }
+    50% { box-shadow: 0 0 10px rgba(0, 230, 118, 0.8); }
+}
+
+@keyframes dot-ping-flash {
+    0% { transform: scale(1); box-shadow: 0 0 6px rgba(0, 230, 118, 0.6); }
+    40% { transform: scale(1.8); box-shadow: 0 0 14px rgba(0, 230, 118, 1); }
+    100% { transform: scale(1); box-shadow: 0 0 6px rgba(0, 230, 118, 0.6); }
 }
 
 /* Results Stats */
@@ -236,15 +444,16 @@ main {
 }
 
 .stat-item {
-    background: #f8f9ff;
+    background: rgba(255,255,255,0.12);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
     padding: 15px 25px;
-    border-radius: 8px;
     border-left: 4px solid #667eea;
 }
 
 .stat-item strong {
     font-size: 1.5rem;
-    color: #667eea;
+    color: #fff;
     margin-right: 5px;
 }
 

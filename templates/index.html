@@ -13,10 +13,7 @@
 </head>
 <body>
     <div class="container">
-        <header>
-            <h1>🗺️ GeoTIFF Object Detection</h1>
-            <p>Upload a GeoTIFF file to detect objects using AI</p>
-        </header>
+        <header class="app-header"><h1>GeoTIFF Object Detection</h1></header>
 
         <main>
             <!-- Upload Section -->
@@ -55,12 +52,42 @@
             </div>
 
             <!-- Progress Section -->
-            <div id="progress-section" class="section" style="display: none;">
-                <h3>Processing...</h3>
+            <div id="progress-section" class="section progress-section" style="display: none;">
+                <div class="progress-visual">
+                    <!-- Morphing SVG stage icons -->
+                    <div class="stage-icon" id="stage-icon">
+                        <svg id="svg-upload" class="stage-svg active" viewBox="0 0 80 80">
+                            <circle class="pulse-ring" cx="40" cy="40" r="36" />
+                            <path class="icon-path" d="M40 56 V28 M28 38 L40 24 L52 38" />
+                            <path class="icon-path" d="M24 58 H56" />
+                        </svg>
+                        <svg id="svg-processing" class="stage-svg" viewBox="0 0 80 80">
+                            <circle class="pulse-ring" cx="40" cy="40" r="36" />
+                            <rect class="scan-line" x="20" y="20" width="40" height="40" rx="4" />
+                            <line class="scan-beam" x1="20" y1="40" x2="60" y2="40" />
+                            <circle class="scan-dot" cx="40" cy="40" r="3" />
+                        </svg>
+                        <svg id="svg-overlay" class="stage-svg" viewBox="0 0 80 80">
+                            <circle class="pulse-ring" cx="40" cy="40" r="36" />
+                            <rect class="layer layer-1" x="22" y="28" width="30" height="22" rx="3" />
+                            <rect class="layer layer-2" x="28" y="24" width="30" height="22" rx="3" />
+                            <rect class="layer layer-3" x="34" y="20" width="30" height="22" rx="3" />
+                        </svg>
+                    </div>
+                    <h3 id="progress-heading" class="progress-heading">Uploading</h3>
+                </div>
+
                 <div class="progress-bar">
                     <div id="progress-fill" class="progress-fill"></div>
                 </div>
                 <p id="progress-text" class="progress-text">Initializing...</p>
+                <p id="progress-reassurance" class="progress-reassurance"></p>
+
+                <!-- WebSocket connection indicator -->
+                <div id="ws-indicator" class="ws-indicator" style="display: none;">
+                    <span class="ws-dot"></span>
+                    <span class="ws-label">Connected</span>
+                </div>
             </div>
 
             <!-- Results Section -->
