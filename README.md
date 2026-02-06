@@ -1,6 +1,6 @@
 # GeoTIFF Object Detection Web App
 
-A FastAPI-powered web application for running object detection on GeoTIFF files using your trained PyTorch model.
+A FastAPI-powered web application for running object detection on GeoTIFF files using your trained PyTorch model, with built-in QC deviation analysis and Excel reporting.
 
 <p align="center">
   <img
@@ -12,18 +12,18 @@ A FastAPI-powered web application for running object detection on GeoTIFF files 
 
 ## Features
 
-- 📤 **Drag & drop** GeoTIFF upload with progress tracking
-- 🗺️ **Interactive map** with Leaflet.js
-- 🚀 **Real-time inference** with progress tracking via WebSocket
-- 🎯 **Detection visualization** with overlays
-- ✏️ **Interactive editing** - click to select/deselect detections
-- 🗑️ **Delete unwanted detections** before export
-- 📊 **Live statistics** showing remaining and deleted counts
-- 🖼️ **High-resolution overlay** generation (up to 8192px)
-- 👁️ **Toggle layers** - show/hide image and detections independently
-- 📥 **Filtered GeoJSON export** with proper CRS preservation
-- 🔄 **Automatic geometry merging** for cleaner results
-- 🧹 **Auto cleanup** of uploaded files after 1 hour
+- **Drag & drop** GeoTIFF upload with progress tracking
+- **Interactive map** with Leaflet.js and high-resolution overlay (up to 8192px)
+- **Real-time inference** with tile-based progress via WebSocket
+- **Model selection** - switch between `.pth` checkpoints from a dropdown
+- **Device toggle** - run inference on CPU or GPU
+- **Detection visualization** with interactive editing (select, delete, toggle)
+- **Filtered GeoJSON export** with proper CRS preservation
+- **Automatic geometry merging** for cleaner results
+- **QC Deviation Analysis** - upload a CSV of check points and compare against detections
+- **Excel Deviation Report** with embedded visualization and deviation snapshots
+- **Auto-rerun QC** - switching models and re-running inference automatically refreshes QC results
+- **Auto cleanup** of uploaded files after 1 hour
 
 ## Setup
 
@@ -34,7 +34,11 @@ cd geo-web-app
 pip install -r requirements.txt
 ```
 
-### 2. Run the Application
+### 2. Add Model Checkpoints
+
+Place one or more `.pth` checkpoint files in the `checkpoints/` directory. The app will prefer `best_model.pth` on startup if present, otherwise it loads the first `.pth` file found.
+
+### 3. Run the Application
 
 ```bash
 python app.py
@@ -46,36 +50,60 @@ Or using uvicorn directly:
 uvicorn app:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### 3. Open in Browser
+### 4. Open in Browser
 
 Navigate to: **http://localhost:8000**
 
 ## Usage
 
-1. **Upload**: Drag and drop a `.tif` or `.tiff` file or click to browse (example image provided in `static/images/crop_38.tif`)
+1. **Upload**: Drag and drop a `.tif` or `.tiff` file or click to browse
 2. **Preview**: View the image bounds and high-resolution overlay on the map
-3. **Run Inference**: Click "Run Inference" and watch the real-time progress
-4. **View Results**: See detected objects overlaid on the map with live statistics
-5. **Edit Detections** (optional):
+3. **Select Model/Device**: Choose a checkpoint from the dropdown and toggle CPU/GPU
+4. **Run Inference**: Click "Run Inference" and watch the real-time progress
+5. **View Results**: See detected objects overlaid on the map with live statistics
+6. **Edit Detections** (optional):
    - Click polygons to select them (turns red)
    - Click again to deselect
    - Use "Delete Selected" button to remove false positives
-   - View updated statistics showing remaining/deleted counts
-6. **Toggle Layers**: Show/hide the image overlay or detections as needed
-7. **Download**: Export filtered results as GeoJSON (excludes deleted detections)
+7. **Toggle Layers**: Show/hide the image overlay or detections as needed
+8. **Download GeoJSON**: Export filtered results (excludes deleted detections)
+
+### QC Deviation Analysis
+
+1. After running inference, click **Upload QC Points** and select a CSV file
+   - Supported formats: header-based (`point_id, y, x, z`) or positional columns
+   - Coordinates should be in the TIF's native CRS (e.g., NAD83 State Plane, feet)
+2. The map displays QC markers, centroid markers, connecting lines, and distance labels
+3. A deviation table shows all matched points with click-to-zoom
+4. Click **Download Report** to generate an Excel workbook with:
+   - **Sheet 1**: Deviation table with status highlighting and an embedded visualization
+   - **Sheet 2**: Detected centroids in WGS84
+   - **Sheet 3**: Cropped snapshots for each deviation exceeding the 3cm threshold
+5. If you switch models and re-run inference, QC results automatically refresh
 
 ## API Endpoints
 
-### HTTP Endpoints
+### HTTP
 
-- `GET /` - Main page
-- `POST /upload` - Upload GeoTIFF file
-- `GET /download/{file_id}` - Download results as GeoJSON
-- `GET /health` - Health check
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/` | Main page |
+| `POST` | `/upload` | Upload GeoTIFF file |
+| `GET` | `/models` | List available checkpoints and current model state |
+| `POST` | `/models/load` | Load a checkpoint on a specific device |
+| `POST` | `/qc-analysis/{file_id}` | Run QC deviation analysis (accepts CSV upload) |
+| `GET` | `/qc-rerun/{file_id}` | Re-run QC analysis with current detections |
+| `GET` | `/qc-report/{file_id}` | Download generated Excel report |
+| `GET` | `/download/{file_id}` | Download detection results as GeoJSON |
+| `GET` | `/health` | Health check |
 
-### WebSocket Endpoint
+### WebSocket
 
-- `WS /ws/inference/{file_id}` - Real-time inference with progress updates
+| Path | Description |
+|------|-------------|
+| `WS /ws/process/{file_id}` | File processing (preview, overlay, bounds) with progress logs |
+| `WS /ws/inference/{file_id}` | Real-time inference with tile progress |
+| `WS /ws/qc-report/{file_id}` | Report generation with progress logs |
 
 ## Configuration
 
@@ -83,11 +111,7 @@ Edit configuration in `app.py`:
 
 ```python
 UPLOAD_DIR = BASE_DIR / "static" / "uploads"
-CHECKPOINT_PATH = BASE_DIR / "checkpoints" / "best_model.pth"
-
-# High-resolution overlay settings (in upload endpoint)
-format='JPEG',         # Output format
-quality=90             # JPEG quality (1-100)
+CHECKPOINTS_DIR = BASE_DIR / "checkpoints"
 ```
 
 Model parameters in `model_inference.py`:
@@ -98,73 +122,30 @@ overlap=128,           # Overlap between tiles
 score_threshold=0.5,   # Minimum confidence score
 ```
 
-Automatic cleanup settings in `app.py`:
+QC threshold in `utils.py`:
 
 ```python
-max_age_hours=1        # Delete uploaded files after 1 hour
+THRESHOLD_CM = 3.0     # Deviation threshold in centimeters
+FEET_TO_CM = 30.48     # Conversion factor (native CRS in feet)
 ```
-
-## Interactive Editing Workflow
-
-The app includes a powerful interactive editing feature to clean up detection results:
-
-1. **Visual Feedback**:
-   - Default detections appear in **green**
-   - Selected detections turn **red**
-   - Deleted items are tracked in live statistics
-
-2. **Selection**:
-   - Click any polygon to select/deselect it
-   - Multiple selections are supported
-   - Delete button shows count: "Delete Selected (3)"
-
-3. **Deletion**:
-   - Only affects the export, not the original detections
-   - Statistics update to show remaining vs deleted counts
-   - Can toggle detections layer visibility after deletion
-
-4. **Export**:
-   - Downloaded GeoJSON automatically excludes deleted features
-   - Original full detection file is still saved on server at `/download/{file_id}`
 
 ## Troubleshooting
 
 ### Model Not Loading
 
-Ensure your checkpoint file is at `checkpoints/best_model.pth` and contains the correct state dict.
+Ensure at least one `.pth` checkpoint file exists in the `checkpoints/` directory.
 
 ### CUDA Out of Memory
 
-Reduce `tile_size` or use CPU:
-
-```python
-device="cpu"  # In model_inference.py
-```
+Toggle to CPU using the device buttons in the UI, or reduce `tile_size`.
 
 ### WebSocket Connection Failed
 
 Check firewall settings and ensure port 8000 is accessible.
 
-### Slow Inference
+### OpenMP Error on Windows
 
-- Use GPU if available
-- Reduce `tile_size` for faster processing (less accurate on edges)
-- Increase `overlap` for better edge handling (slower)
-
-## Production Deployment
-
-For production, use:
-
-```bash
-uvicorn app:app --host 0.0.0.0 --port 8000 --workers 2
-```
-
-Consider:
-- **Reverse proxy** (nginx)
-- **HTTPS** with SSL certificates
-- **Authentication** (add auth middleware)
-- **Rate limiting** (slowapi)
-- **Docker** containerization
+If you see `OMP: Error #15: Initializing libiomp5md.dll`, this is handled automatically via `KMP_DUPLICATE_LIB_OK=TRUE` in `utils.py`.
 
 ## Technologies Used
 
@@ -172,6 +153,7 @@ Consider:
 - **Frontend**: Vanilla JavaScript, Leaflet.js
 - **ML**: Faster R-CNN ResNet50-FPN
 - **Geo**: GeoPandas, Shapely
+- **Reporting**: openpyxl, matplotlib
 
 ## License
 

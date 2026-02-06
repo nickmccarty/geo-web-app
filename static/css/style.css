@@ -152,6 +152,102 @@ main {
     margin-bottom: 20px;
 }
 
+/* Model Controls */
+.model-controls {
+    display: flex;
+    align-items: flex-end;
+    gap: 20px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.control-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.control-group label {
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.model-select {
+    background: rgba(0, 0, 0, 0.35);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-family: 'Inconsolata', monospace;
+    font-size: 0.9rem;
+    cursor: pointer;
+    min-width: 200px;
+}
+
+.model-select:focus {
+    outline: none;
+    border-color: #667eea;
+}
+
+.model-select option {
+    background: #2c3e50;
+    color: #fff;
+}
+
+.device-toggle {
+    display: flex;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.device-btn {
+    padding: 8px 18px;
+    font-family: 'Inconsolata', monospace;
+    font-size: 0.85rem;
+    font-weight: 700;
+    border: none;
+    cursor: pointer;
+    background: rgba(0, 0, 0, 0.35);
+    color: rgba(255, 255, 255, 0.5);
+    transition: all 0.2s ease;
+}
+
+.device-btn:hover:not(:disabled) {
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.device-btn.active {
+    background: #667eea;
+    color: #fff;
+}
+
+.device-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.model-status {
+    font-size: 0.85rem;
+    color: rgba(255, 255, 255, 0.6);
+    padding-bottom: 8px;
+}
+
+.model-status.loading {
+    color: #ffc107;
+}
+
+.model-status.loaded {
+    color: #00e676;
+}
+
+.model-status.error {
+    color: #ff5252;
+}
+
 /* Buttons */
 .action-buttons {
     display: flex;
@@ -212,6 +308,15 @@ main {
 
 .btn-danger:hover:not(:disabled) {
     background: #c82333;
+}
+
+.btn-excel {
+    background: #217346;
+    color: white;
+}
+
+.btn-excel:hover:not(:disabled) {
+    background: #1a5c38;
 }
 
 /* Spinner */

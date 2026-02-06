@@ -23,13 +23,14 @@ from utils import (
     merge_overlapping_geometries,
     gdf_to_geojson_for_leaflet,
     compute_deviations,
+    generate_deviation_report,
     cleanup_old_files
 )
 
 # Configuration
 BASE_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = BASE_DIR / "static" / "uploads"
-CHECKPOINT_PATH = BASE_DIR / "checkpoints" / "best_model.pth"
+CHECKPOINTS_DIR = BASE_DIR / "checkpoints"
 
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -44,24 +45,33 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 # Global model instance
 model: Optional[ObjectDetectionModel] = None
+current_checkpoint_name: Optional[str] = None
+current_device: str = "cuda"
 
 
 @app.on_event("startup")
 async def startup_event():
     """Load model on startup."""
-    global model
+    global model, current_checkpoint_name, current_device
 
-    if not CHECKPOINT_PATH.exists():
-        print(f"Warning: Model checkpoint not found at {CHECKPOINT_PATH}")
-        print("Please copy your best_model.pth to the checkpoints/ directory")
+    # Find default checkpoint (prefer best_model.pth, else first .pth found)
+    default_path = CHECKPOINTS_DIR / "best_model.pth"
+    if not default_path.exists():
+        pth_files = sorted(CHECKPOINTS_DIR.glob("*.pth"))
+        default_path = pth_files[0] if pth_files else None
+
+    if default_path is None or not default_path.exists():
+        print(f"Warning: No .pth checkpoints found in {CHECKPOINTS_DIR}")
     else:
-        print("Loading model...")
+        print(f"Loading model: {default_path.name}...")
         model = ObjectDetectionModel(
-            checkpoint_path=str(CHECKPOINT_PATH),
+            checkpoint_path=str(default_path),
             num_classes=2,
             device="cuda"
         )
-        print("Model loaded successfully")
+        current_checkpoint_name = default_path.name
+        current_device = model.device
+        print(f"Model loaded successfully on {current_device}")
 
     # Cleanup old files
     cleanup_old_files(str(UPLOAD_DIR), max_age_hours=1)
@@ -77,6 +87,61 @@ async def index(request: Request):
 async def favicon():
     """Serve the favicon to avoid 404."""
     return FileResponse("static/favicon.ico")
+
+
+@app.get("/models")
+async def list_models():
+    """List available model checkpoints and current model state."""
+    import torch
+    pth_files = sorted([f.name for f in CHECKPOINTS_DIR.glob("*.pth")])
+    return JSONResponse({
+        "checkpoints": pth_files,
+        "current_checkpoint": current_checkpoint_name,
+        "current_device": current_device,
+        "cuda_available": torch.cuda.is_available()
+    })
+
+
+@app.post("/models/load")
+async def load_model(request: Request):
+    """Load a model checkpoint on the specified device."""
+    global model, current_checkpoint_name, current_device
+
+    body = await request.json()
+    checkpoint = body.get("checkpoint")
+    device = body.get("device", "cuda")
+
+    if not checkpoint:
+        raise HTTPException(status_code=400, detail="checkpoint is required")
+
+    checkpoint_path = CHECKPOINTS_DIR / checkpoint
+    if not checkpoint_path.exists():
+        raise HTTPException(status_code=404, detail=f"Checkpoint not found: {checkpoint}")
+
+    if device not in ("cuda", "cpu"):
+        raise HTTPException(status_code=400, detail="device must be 'cuda' or 'cpu'")
+
+    try:
+        loop = asyncio.get_event_loop()
+
+        def do_load():
+            return ObjectDetectionModel(
+                checkpoint_path=str(checkpoint_path),
+                num_classes=2,
+                device=device
+            )
+
+        new_model = await loop.run_in_executor(None, do_load)
+        model = new_model
+        current_checkpoint_name = checkpoint
+        current_device = model.device
+        return JSONResponse({
+            "status": "ok",
+            "checkpoint": current_checkpoint_name,
+            "device": current_device
+        })
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load model: {str(e)}")
 
 
 @app.post("/upload")
@@ -340,6 +405,11 @@ async def qc_analysis(file_id: str, file: UploadFile = File(...)):
 
     csv_bytes = await file.read()
 
+    # Save CSV so the report endpoint can access it later
+    csv_path = UPLOAD_DIR / f"{file_id}_qc.csv"
+    async with aiofiles.open(csv_path, 'wb') as f:
+        await f.write(csv_bytes)
+
     try:
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(
@@ -351,6 +421,118 @@ async def qc_analysis(file_id: str, file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail=f"CSV parsing error: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"QC analysis error: {str(e)}")
+
+
+@app.websocket("/ws/qc-report/{file_id}")
+async def ws_qc_report(websocket: WebSocket, file_id: str):
+    """
+    WebSocket endpoint for generating QC deviation report with progress logs.
+    Saves the report to disk and sends a download URL on completion.
+    """
+    await websocket.accept()
+
+    csv_path = UPLOAD_DIR / f"{file_id}_qc.csv"
+    geojson_path = UPLOAD_DIR / f"{file_id}_detections.geojson"
+    tif_path = UPLOAD_DIR / f"{file_id}.tif"
+
+    for path, label in [(csv_path, "QC CSV"), (geojson_path, "Detections"), (tif_path, "Source TIF")]:
+        if not path.exists():
+            await websocket.send_json({"type": "error", "message": f"{label} not found."})
+            await websocket.close()
+            return
+
+    loop = asyncio.get_event_loop()
+
+    async def send_log(message: str):
+        await websocket.send_json({"type": "log", "message": message})
+
+    try:
+        async with aiofiles.open(csv_path, 'rb') as f:
+            csv_bytes = await f.read()
+
+        def run_report():
+            def sync_log(msg):
+                asyncio.run_coroutine_threadsafe(send_log(msg), loop).result()
+            return generate_deviation_report(
+                csv_bytes, str(geojson_path), str(tif_path), log_callback=sync_log
+            )
+
+        xlsx_bytes = await loop.run_in_executor(None, run_report)
+
+        # Save to disk so the GET endpoint can serve it
+        report_path = UPLOAD_DIR / f"{file_id}_qc_report.xlsx"
+        async with aiofiles.open(report_path, 'wb') as f:
+            await f.write(xlsx_bytes)
+
+        await websocket.send_json({
+            "type": "complete",
+            "download_url": f"/qc-report/{file_id}"
+        })
+
+    except WebSocketDisconnect:
+        print(f"QC report WS disconnected for {file_id}")
+    except Exception as e:
+        try:
+            await websocket.send_json({
+                "type": "error", "message": f"Report generation error: {str(e)}"
+            })
+        except Exception:
+            pass
+    finally:
+        try:
+            await websocket.close()
+        except Exception:
+            pass
+
+
+@app.get("/qc-report/{file_id}")
+async def qc_report(file_id: str):
+    """
+    Download a previously generated QC deviation report.
+    """
+    report_path = UPLOAD_DIR / f"{file_id}_qc_report.xlsx"
+
+    if not report_path.exists():
+        raise HTTPException(status_code=404, detail="Report not found. Generate it first.")
+
+    return FileResponse(
+        report_path,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        filename=f"deviation_report_{file_id}.xlsx"
+    )
+
+
+@app.get("/qc-rerun/{file_id}")
+async def qc_rerun(file_id: str):
+    """
+    Re-run QC deviation analysis using the previously uploaded CSV
+    and the current (possibly updated) detections GeoJSON.
+    """
+    csv_path = UPLOAD_DIR / f"{file_id}_qc.csv"
+    geojson_path = UPLOAD_DIR / f"{file_id}_detections.geojson"
+    tif_path = UPLOAD_DIR / f"{file_id}.tif"
+
+    if not csv_path.exists():
+        raise HTTPException(status_code=404, detail="No QC CSV found. Upload one first.")
+    if not geojson_path.exists():
+        raise HTTPException(status_code=404, detail="No detections found. Run inference first.")
+    if not tif_path.exists():
+        raise HTTPException(status_code=404, detail="Source TIF not found.")
+
+    async with aiofiles.open(csv_path, 'rb') as f:
+        csv_bytes = await f.read()
+
+    try:
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: compute_deviations(csv_bytes, str(geojson_path), str(tif_path))
+        )
+        return JSONResponse(result)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"CSV parsing error: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"QC rerun error: {str(e)}")
 
 
 @app.get("/download/{file_id}")

@@ -13,7 +13,10 @@ build/
 # Uploads
 static/uploads/*.tif
 static/uploads/*.png
+static/uploads/*.jpg
 static/uploads/*.geojson
+static/uploads/*.csv
+static/uploads/*.xlsx
 
 # Checkpoints (add your actual checkpoint separately)
 # checkpoints/*.pth
@@ -27,6 +30,10 @@ static/uploads/*.geojson
 # OS
 .DS_Store
 Thumbs.db
+
+# Jupyter notebooks
+*.ipynb
+.ipynb_checkpoints/
 
 # Logs
 *.log

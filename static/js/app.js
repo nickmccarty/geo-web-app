@@ -53,6 +53,7 @@ const uploadQcBtn = document.getElementById('upload-qc-btn');
 const qcFileInput = document.getElementById('qc-file-input');
 const qcSection = document.getElementById('qc-section');
 const toggleQcBtn = document.getElementById('toggle-qc-btn');
+const downloadQcReportBtn = document.getElementById('download-qc-report-btn');
 
 // Upload area interactions
 uploadArea.addEventListener('click', () => fileInput.click());
@@ -153,6 +154,13 @@ toggleQcBtn.addEventListener('click', () => {
             map.addLayer(qcLayer);
             toggleQcBtn.textContent = 'Hide QC Layer';
         }
+    }
+});
+
+// Download QC report button
+downloadQcReportBtn.addEventListener('click', () => {
+    if (currentFileId) {
+        generateQcReport(currentFileId);
     }
 });
 
@@ -359,6 +367,9 @@ function displayPreview(data) {
 
     // Initialize map
     initializeMap(data);
+
+    // Populate model controls
+    fetchModelState();
 }
 
 // Initialize Leaflet map
@@ -639,6 +650,22 @@ function handleInferenceComplete(message) {
 
     // Re-enable the inference button
     resetInferenceUI();
+
+    // Auto-rerun QC analysis if a CSV was previously uploaded
+    if (qcData !== null && currentFileId) {
+        fetch(`/qc-rerun/${currentFileId}`)
+            .then(r => {
+                if (!r.ok) return r.json().then(err => { throw new Error(err.detail); });
+                return r.json();
+            })
+            .then(data => {
+                qcData = data;
+                displayQcResults(data);
+            })
+            .catch(err => {
+                console.warn('QC rerun failed:', err.message);
+            });
+    }
 }
 
 
@@ -869,6 +896,95 @@ function showLoading(show) {
     }
 }
 
+// --- Model Selection & Device Toggle ---
+
+let modelLoading = false;
+
+function fetchModelState() {
+    fetch('/models')
+        .then(r => r.json())
+        .then(data => {
+            populateModelDropdown(data.checkpoints, data.current_checkpoint);
+            setActiveDevice(data.current_device, data.cuda_available);
+            setModelStatus('Loaded', 'loaded');
+        })
+        .catch(() => setModelStatus('Error fetching models', 'error'));
+}
+
+function populateModelDropdown(checkpoints, currentCheckpoint) {
+    const select = document.getElementById('model-select');
+    select.innerHTML = '';
+    checkpoints.forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name.replace('.pth', '');
+        if (name === currentCheckpoint) opt.selected = true;
+        select.appendChild(opt);
+    });
+}
+
+function setActiveDevice(device, cudaAvailable) {
+    const buttons = document.querySelectorAll('.device-btn');
+    buttons.forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.device === device);
+        if (btn.dataset.device === 'cuda') {
+            btn.disabled = !cudaAvailable;
+        }
+    });
+}
+
+function setModelStatus(text, cls) {
+    const status = document.getElementById('model-status');
+    status.textContent = text;
+    status.className = 'model-status' + (cls ? ' ' + cls : '');
+}
+
+function loadModel(checkpoint, device) {
+    if (modelLoading) return;
+    modelLoading = true;
+    setModelStatus('Loading...', 'loading');
+    runInferenceBtn.disabled = true;
+
+    fetch('/models/load', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ checkpoint, device })
+    })
+    .then(r => {
+        if (!r.ok) return r.json().then(err => { throw new Error(err.detail); });
+        return r.json();
+    })
+    .then(data => {
+        setActiveDevice(data.device, true);
+        setModelStatus('Loaded', 'loaded');
+    })
+    .catch(err => {
+        setModelStatus('Error', 'error');
+        alert(`Failed to load model: ${err.message}`);
+        // Re-fetch to restore correct UI state
+        fetchModelState();
+    })
+    .finally(() => {
+        modelLoading = false;
+        runInferenceBtn.disabled = false;
+    });
+}
+
+// Model dropdown change
+document.getElementById('model-select').addEventListener('change', (e) => {
+    const activeBtn = document.querySelector('.device-btn.active');
+    loadModel(e.target.value, activeBtn ? activeBtn.dataset.device : 'cpu');
+});
+
+// Device toggle buttons
+document.querySelectorAll('.device-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        if (btn.disabled || btn.classList.contains('active')) return;
+        const select = document.getElementById('model-select');
+        loadModel(select.value, btn.dataset.device);
+    });
+});
+
 // --- QC Deviation Analysis ---
 
 function uploadQcPoints(file) {
@@ -1051,4 +1167,84 @@ function renderDeviationTable(qcPoints) {
             }
         });
     });
+}
+
+// --- QC Report Generation (WebSocket) ---
+
+function generateQcReport(fileId) {
+    const btnIcon = document.getElementById('report-btn-icon');
+    const btnSpinner = document.getElementById('report-btn-spinner');
+    const btnText = document.getElementById('report-btn-text');
+    const logConsole = document.getElementById('qc-report-log');
+    const logEntries = document.getElementById('qc-report-log-entries');
+
+    // Show spinner, hide icon, disable button
+    btnIcon.style.display = 'none';
+    btnSpinner.style.display = 'inline-block';
+    btnText.textContent = 'Generating...';
+    downloadQcReportBtn.disabled = true;
+
+    // Show and clear log console
+    logConsole.style.display = 'block';
+    logEntries.innerHTML = '';
+
+    function appendReportLog(message) {
+        const entry = document.createElement('div');
+        entry.className = 'log-entry log-info';
+        const now = new Date();
+        const ts = now.toLocaleTimeString('en-US', { hour12: false });
+        entry.innerHTML = `<span class="log-time">${ts}</span><span class="log-msg">${message}</span>`;
+        logEntries.appendChild(entry);
+        logEntries.scrollTop = logEntries.scrollHeight;
+    }
+
+    function resetReportBtn() {
+        btnIcon.style.display = 'inline-flex';
+        btnSpinner.style.display = 'none';
+        btnText.textContent = 'Download Report';
+        downloadQcReportBtn.disabled = false;
+    }
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws/qc-report/${fileId}`;
+    const reportWs = new WebSocket(wsUrl);
+
+    reportWs.onopen = () => {
+        appendReportLog('Connected. Starting report generation...');
+    };
+
+    reportWs.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+
+        switch (msg.type) {
+            case 'log':
+                appendReportLog(msg.message);
+                break;
+
+            case 'complete':
+                appendReportLog('Report ready. Starting download...');
+                resetReportBtn();
+                // Trigger download
+                window.location.href = msg.download_url;
+                // Fade out log after a delay
+                setTimeout(() => {
+                    logConsole.style.display = 'none';
+                }, 3000);
+                break;
+
+            case 'error':
+                appendReportLog(`Error: ${msg.message}`);
+                resetReportBtn();
+                alert(`Report Error: ${msg.message}`);
+                break;
+        }
+    };
+
+    reportWs.onerror = () => {
+        appendReportLog('WebSocket connection error.');
+        resetReportBtn();
+        alert('Report generation connection error.');
+    };
+
+    reportWs.onclose = () => {};
 }
