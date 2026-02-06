@@ -7,6 +7,8 @@ let ws = null;
 let allDetections = null; // Store all detections GeoJSON
 let selectedFeatures = new Set(); // Track selected feature indices
 let deletedFeatures = new Set(); // Track deleted feature indices
+let qcLayer = null; // Leaflet layer group for QC markers, lines, labels
+let qcData = null; // QC analysis response from server
 
 // Progress timing state
 let progressStartTime = null;
@@ -47,6 +49,10 @@ const downloadBtn = document.getElementById('download-btn');
 const toggleDetectionsBtn = document.getElementById('toggle-detections-btn');
 const toggleImageBtn = document.getElementById('toggle-image-btn');
 const deleteSelectedBtn = document.getElementById('delete-selected-btn');
+const uploadQcBtn = document.getElementById('upload-qc-btn');
+const qcFileInput = document.getElementById('qc-file-input');
+const qcSection = document.getElementById('qc-section');
+const toggleQcBtn = document.getElementById('toggle-qc-btn');
 
 // Upload area interactions
 uploadArea.addEventListener('click', () => fileInput.click());
@@ -124,6 +130,28 @@ toggleDetectionsBtn.addEventListener('click', () => {
         } else {
             map.addLayer(detectionsLayer);
             toggleDetectionsBtn.textContent = '🙈 Hide Detections';
+        }
+    }
+});
+
+// QC upload button
+uploadQcBtn.addEventListener('click', () => qcFileInput.click());
+
+qcFileInput.addEventListener('change', (e) => {
+    if (e.target.files.length > 0) {
+        uploadQcPoints(e.target.files[0]);
+    }
+});
+
+// Toggle QC layer button
+toggleQcBtn.addEventListener('click', () => {
+    if (qcLayer) {
+        if (map.hasLayer(qcLayer)) {
+            map.removeLayer(qcLayer);
+            toggleQcBtn.textContent = 'Show QC Layer';
+        } else {
+            map.addLayer(qcLayer);
+            toggleQcBtn.textContent = 'Hide QC Layer';
         }
     }
 });
@@ -343,12 +371,12 @@ function initializeMap(data) {
     map = L.map('map', {
         zoomControl: true,
         attributionControl: false,
-        maxZoom: 24
+        maxZoom: 28
     });
 
     // Add base layer
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 24,
+        maxZoom: 28,
         maxNativeZoom: 19
     }).addTo(map);
 
@@ -461,10 +489,18 @@ function runInference(fileId) {
 // Handle WebSocket messages (inference)
 function handleWebSocketMessage(message) {
     switch (message.type) {
-        case 'status':
+        case 'status': {
             appendLog(message.message, 'status');
-            updateProgress(0, message.message);
+            const msg = message.message.toLowerCase();
+            if (msg.includes('merging') || msg.includes('finalizing')) {
+                // Switch to merging stage with indeterminate bar
+                setStageIcon('merging');
+                document.getElementById('progress-text').textContent = message.message;
+            } else {
+                updateProgress(0, message.message);
+            }
             break;
+        }
 
         case 'log':
             appendLog(message.message, 'info');
@@ -501,6 +537,11 @@ function setStageIcon(stage) {
     icons.forEach(svg => svg.classList.remove('active'));
 
     const heading = document.getElementById('progress-heading');
+    const bar = document.querySelector('.progress-bar');
+
+    // Remove indeterminate unless we're entering the merging stage
+    if (stage !== 'merging' && bar) bar.classList.remove('indeterminate');
+
     switch (stage) {
         case 'upload':
             document.getElementById('svg-upload').classList.add('active');
@@ -513,6 +554,11 @@ function setStageIcon(stage) {
         case 'overlay':
             document.getElementById('svg-overlay').classList.add('active');
             heading.textContent = 'Generating Overlay';
+            break;
+        case 'merging':
+            document.getElementById('svg-merging').classList.add('active');
+            heading.textContent = 'Merging Detections';
+            if (bar) bar.classList.add('indeterminate');
             break;
     }
 }
@@ -562,7 +608,7 @@ function updateProgress(percentage, text) {
         setStageIcon('upload');
     } else if (text.toLowerCase().includes('overlay') || text.toLowerCase().includes('processing image')) {
         setStageIcon('overlay');
-    } else if (text.toLowerCase().includes('tile') || text.toLowerCase().includes('inference') || text.toLowerCase().includes('merging')) {
+    } else if (text.toLowerCase().includes('tile') || text.toLowerCase().includes('inference')) {
         setStageIcon('processing');
     }
 }
@@ -585,6 +631,8 @@ function handleInferenceComplete(message) {
     if (message.detections && message.detections.features.length > 0) {
         addDetectionsToMap(message.detections);
         updateDetectionStats();
+        // Show QC upload button now that detections are available
+        uploadQcBtn.style.display = 'inline-flex';
     } else {
         console.warn('No detections returned');
     }
@@ -819,4 +867,188 @@ function showLoading(show) {
     } else {
         document.body.style.cursor = 'default';
     }
+}
+
+// --- QC Deviation Analysis ---
+
+function uploadQcPoints(file) {
+    if (!file.name.toLowerCase().endsWith('.csv')) {
+        alert('Please upload a .csv file');
+        return;
+    }
+
+    uploadQcBtn.disabled = true;
+    uploadQcBtn.textContent = 'Analyzing...';
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    fetch(`/qc-analysis/${currentFileId}`, {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => {
+        if (!response.ok) {
+            return response.json().then(err => { throw new Error(err.detail || 'QC analysis failed'); });
+        }
+        return response.json();
+    })
+    .then(data => {
+        qcData = data;
+        displayQcResults(data);
+    })
+    .catch(error => {
+        alert(`QC Analysis Error: ${error.message}`);
+    })
+    .finally(() => {
+        uploadQcBtn.disabled = false;
+        uploadQcBtn.textContent = 'Upload QC Points';
+        qcFileInput.value = '';
+    });
+}
+
+function displayQcResults(data) {
+    qcSection.style.display = 'block';
+    renderQcStats(data.summary);
+    addQcLayerToMap(data.qc_points);
+    renderDeviationTable(data.qc_points);
+    toggleQcBtn.textContent = 'Hide QC Layer';
+}
+
+function renderQcStats(summary) {
+    const statsDiv = document.getElementById('qc-stats');
+    const exceedColor = summary.count_exceeding_3cm > 0 ? '#dc3545' : '#28a745';
+
+    statsDiv.innerHTML = `
+        <div class="stat-item">
+            <strong>${summary.matched_points}</strong> matched
+        </div>
+        <div class="stat-item">
+            <strong>${summary.avg_deviation_cm.toFixed(2)}</strong> cm avg
+        </div>
+        <div class="stat-item">
+            <strong>${summary.max_deviation_cm.toFixed(2)}</strong> cm max
+        </div>
+        <div class="stat-item" style="border-left-color: ${exceedColor};">
+            <strong>${summary.count_exceeding_3cm}</strong> &gt; 3cm
+        </div>
+    `;
+}
+
+function addQcLayerToMap(qcPoints) {
+    // Remove previous QC layer if re-uploading
+    if (qcLayer) {
+        map.removeLayer(qcLayer);
+    }
+
+    qcLayer = L.layerGroup();
+
+    qcPoints.forEach(pt => {
+        if (pt.lat == null || pt.lng == null) return;
+
+        const isExceed = pt.exceeds_threshold;
+        const lineColor = pt.matched ? (isExceed ? '#dc3545' : '#28a745') : '#888';
+
+        // QC point marker (always white)
+        const qcMarker = L.circleMarker([pt.lat, pt.lng], {
+            radius: 6,
+            fillColor: '#ffffff',
+            color: '#000000',
+            weight: 1.5,
+            fillOpacity: 0.9
+        });
+
+        let tooltip = `QC #${pt.point_id}`;
+        if (pt.matched && pt.deviation_cm != null) {
+            tooltip += ` | ${pt.deviation_cm.toFixed(2)} cm`;
+        } else if (!pt.matched) {
+            tooltip += ' | No match';
+        }
+        qcMarker.bindTooltip(tooltip, { direction: 'top', offset: [0, -8] });
+        qcLayer.addLayer(qcMarker);
+
+        // If matched: centroid marker + connecting line + distance label
+        if (pt.matched && pt.centroid_lat != null && pt.centroid_lng != null) {
+            // Centroid marker (green or red based on threshold)
+            const centroidMarker = L.circleMarker([pt.centroid_lat, pt.centroid_lng], {
+                radius: 4,
+                fillColor: lineColor,
+                color: isExceed ? '#8b0000' : '#006400',
+                weight: 1,
+                fillOpacity: 0.85
+            });
+            qcLayer.addLayer(centroidMarker);
+
+            // Dotted connecting line
+            const line = L.polyline(
+                [[pt.lat, pt.lng], [pt.centroid_lat, pt.centroid_lng]],
+                {
+                    color: lineColor,
+                    weight: 2,
+                    dashArray: '6, 4',
+                    opacity: 0.8
+                }
+            );
+            qcLayer.addLayer(line);
+
+            // Distance label at midpoint
+            const midLat = (pt.lat + pt.centroid_lat) / 2;
+            const midLng = (pt.lng + pt.centroid_lng) / 2;
+            const labelColor = isExceed ? '#ff4444' : '#44ff44';
+            const labelHtml = `<span class="qc-distance-label" style="color:${labelColor}">${pt.deviation_cm.toFixed(2)} cm</span>`;
+
+            const labelMarker = L.marker([midLat, midLng], {
+                icon: L.divIcon({
+                    className: 'qc-label-icon',
+                    html: labelHtml,
+                    iconSize: [100, 24],
+                    iconAnchor: [110, 12]
+                }),
+                interactive: false
+            });
+            qcLayer.addLayer(labelMarker);
+        }
+    });
+
+    qcLayer.addTo(map);
+}
+
+function renderDeviationTable(qcPoints) {
+    const container = document.getElementById('qc-table-container');
+    const matched = qcPoints.filter(p => p.matched);
+
+    if (matched.length === 0) {
+        container.innerHTML = '<p class="text-muted" style="padding: 20px;">No QC points matched any detection polygons.</p>';
+        return;
+    }
+
+    matched.sort((a, b) => a.point_id - b.point_id);
+
+    let html = '<table class="qc-table"><thead><tr>';
+    html += '<th>Point ID</th><th>Deviation (cm)</th><th>Status</th>';
+    html += '</tr></thead><tbody>';
+
+    matched.forEach(pt => {
+        const rowClass = pt.exceeds_threshold ? 'qc-row-exceed' : '';
+        const status = pt.exceeds_threshold ? 'EXCEED' : 'OK';
+        html += `<tr class="${rowClass}" data-lat="${pt.lat}" data-lng="${pt.lng}" style="cursor:pointer;">`;
+        html += `<td>${pt.point_id}</td>`;
+        html += `<td>${pt.deviation_cm.toFixed(2)}</td>`;
+        html += `<td>${status}</td>`;
+        html += '</tr>';
+    });
+
+    html += '</tbody></table>';
+    container.innerHTML = html;
+
+    // Click row to zoom to that QC point on the map
+    container.querySelectorAll('tbody tr').forEach(row => {
+        row.addEventListener('click', () => {
+            const lat = parseFloat(row.dataset.lat);
+            const lng = parseFloat(row.dataset.lng);
+            if (!isNaN(lat) && !isNaN(lng)) {
+                map.setView([lat, lng], 28, { animate: true });
+            }
+        });
+    });
 }

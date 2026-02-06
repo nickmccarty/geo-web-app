@@ -22,6 +22,7 @@ from utils import (
     get_tif_bounds_geojson,
     merge_overlapping_geometries,
     gdf_to_geojson_for_leaflet,
+    compute_deviations,
     cleanup_old_files
 )
 
@@ -285,7 +286,7 @@ async def websocket_inference(websocket: WebSocket, file_id: str):
             await websocket.send_json({"type": "log", "message": f"Merged to {len(merged_gdf)} detections."})
 
             # Convert to GeoJSON for Leaflet
-            await websocket.send_json({"type": "log", "message": "Converting to GeoJSON (WGS84)..."})
+            await websocket.send_json({"type": "log", "message": "Converting to GeoJSON..."})
             geojson = gdf_to_geojson_for_leaflet(merged_gdf)
 
             # Save results
@@ -316,6 +317,40 @@ async def websocket_inference(websocket: WebSocket, file_id: str):
             await websocket.close()
         except Exception:
             pass
+
+
+@app.post("/qc-analysis/{file_id}")
+async def qc_analysis(file_id: str, file: UploadFile = File(...)):
+    """
+    Run QC deviation analysis against detection results.
+
+    Accepts a QC check points CSV, computes deviations against
+    the saved detection polygons, and returns results as JSON.
+    """
+    if not file.filename.lower().endswith('.csv'):
+        raise HTTPException(status_code=400, detail="Only .csv files are supported")
+
+    tif_path = UPLOAD_DIR / f"{file_id}.tif"
+    if not tif_path.exists():
+        raise HTTPException(status_code=404, detail="Source file not found")
+
+    geojson_path = UPLOAD_DIR / f"{file_id}_detections.geojson"
+    if not geojson_path.exists():
+        raise HTTPException(status_code=404, detail="No detections found. Run inference first.")
+
+    csv_bytes = await file.read()
+
+    try:
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: compute_deviations(csv_bytes, str(geojson_path), str(tif_path))
+        )
+        return JSONResponse(result)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"CSV parsing error: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"QC analysis error: {str(e)}")
 
 
 @app.get("/download/{file_id}")

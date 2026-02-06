@@ -343,6 +343,50 @@ main {
     50% { transform: translateY(-4px); opacity: 1; }
 }
 
+/* Merging / converge icon */
+#svg-merging .merge-box {
+    stroke: #667eea;
+    stroke-width: 2;
+    fill: rgba(102, 126, 234, 0.15);
+}
+
+.merge-box-1 { animation: converge-tl 2s ease-in-out infinite; }
+.merge-box-2 { animation: converge-tr 2s ease-in-out infinite; }
+.merge-box-3 { animation: converge-bl 2s ease-in-out infinite; }
+.merge-box-4 { animation: converge-br 2s ease-in-out infinite; }
+
+@keyframes converge-tl {
+    0%, 100% { transform: translate(0, 0); opacity: 0.7; }
+    50% { transform: translate(8px, 8px); opacity: 1; }
+}
+
+@keyframes converge-tr {
+    0%, 100% { transform: translate(0, 0); opacity: 0.7; }
+    50% { transform: translate(-8px, 8px); opacity: 1; }
+}
+
+@keyframes converge-bl {
+    0%, 100% { transform: translate(0, 0); opacity: 0.7; }
+    50% { transform: translate(8px, -8px); opacity: 1; }
+}
+
+@keyframes converge-br {
+    0%, 100% { transform: translate(0, 0); opacity: 0.7; }
+    50% { transform: translate(-8px, -8px); opacity: 1; }
+}
+
+#svg-merging .merge-center {
+    stroke: #00e676;
+    stroke-width: 2;
+    fill: rgba(0, 230, 118, 0.2);
+    animation: merge-center-pulse 2s ease-in-out infinite;
+}
+
+@keyframes merge-center-pulse {
+    0%, 100% { transform: scale(0.85); opacity: 0.5; }
+    50% { transform: scale(1.1); opacity: 1; }
+}
+
 /* Progress Bar */
 .progress-bar {
     width: 100%;
@@ -365,6 +409,17 @@ main {
 @keyframes shimmer {
     0% { background-position: 200% 0; }
     100% { background-position: -200% 0; }
+}
+
+/* Indeterminate progress bar (pulsing) */
+.progress-bar.indeterminate .progress-fill {
+    width: 100% !important;
+    animation: indeterminate-pulse 2s ease-in-out infinite;
+}
+
+@keyframes indeterminate-pulse {
+    0%, 100% { opacity: 0.35; }
+    50% { opacity: 1; }
 }
 
 .progress-text {
@@ -544,6 +599,93 @@ main {
     font-size: 1.5rem;
     color: #fff;
     margin-right: 5px;
+}
+
+/* QC Stats */
+.qc-stats {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+}
+
+/* QC Deviation Table */
+.qc-table-container {
+    max-height: 400px;
+    overflow-y: auto;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(0, 0, 0, 0.3);
+}
+
+.qc-table-container::-webkit-scrollbar {
+    width: 5px;
+}
+
+.qc-table-container::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.qc-table-container::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 3px;
+}
+
+.qc-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: 'Inconsolata', monospace;
+    font-size: 0.9rem;
+}
+
+.qc-table thead {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.qc-table th {
+    background: rgba(0, 0, 0, 0.5);
+    color: rgba(255, 255, 255, 0.85);
+    padding: 10px 16px;
+    text-align: left;
+    font-weight: 700;
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.05em;
+}
+
+.qc-table td {
+    padding: 8px 16px;
+    color: rgba(255, 255, 255, 0.8);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.qc-table tbody tr:hover {
+    background: rgba(255, 255, 255, 0.1);
+    cursor: pointer;
+}
+
+.qc-row-exceed {
+    background: rgba(220, 53, 69, 0.2) !important;
+}
+
+.qc-row-exceed td {
+    color: #ff6b6b;
+    font-weight: 700;
+}
+
+/* QC distance label on map */
+.qc-label-icon {
+    background: none !important;
+    border: none !important;
+}
+
+.qc-distance-label {
+    font-family: 'Inconsolata', monospace;
+    font-size: 18px;
+    font-weight: 700;
+    text-shadow: 0 0 4px rgba(0, 0, 0, 0.9), 0 0 8px rgba(0, 0, 0, 0.6);
+    white-space: nowrap;
 }
 
 /* Footer */

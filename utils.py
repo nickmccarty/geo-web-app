@@ -6,6 +6,7 @@ import io
 import json
 from typing import Tuple
 import numpy as np
+import pandas as pd
 from PIL import Image
 import rasterio
 from rasterio.warp import calculate_default_transform, reproject, Resampling
@@ -200,6 +201,242 @@ def gdf_to_geojson_for_leaflet(gdf: gpd.GeoDataFrame) -> dict:
 
     # Convert to GeoJSON
     return json.loads(gdf_wgs84.to_json())
+
+
+def load_qc_points(csv_bytes: bytes) -> pd.DataFrame:
+    """
+    Parse QC check points CSV. Supports both header-based and positional column mapping.
+
+    Header-based: recognizes columns named y, x, point_id, z (any order).
+    Positional fallback: assumes column order point_id, y, x, z.
+
+    Args:
+        csv_bytes: Raw CSV file bytes
+
+    Returns:
+        DataFrame with columns: point_id, y, x, z
+    """
+    # First pass: check if first row is a header
+    raw = pd.read_csv(io.BytesIO(csv_bytes), header=None, dtype=str)
+
+    if len(raw.columns) < 2:
+        raise ValueError(f"CSV must have at least 2 columns (y, x), found {len(raw.columns)}")
+
+    # Check if first row contains recognizable header names
+    first_row_lower = [str(v).strip().lower() for v in raw.iloc[0]]
+    known_headers = {'y', 'x', 'z', 'point_id', 'northing', 'easting', 'elev', 'id'}
+    has_header = any(val in known_headers for val in first_row_lower)
+
+    if has_header:
+        # Re-read with header
+        df = pd.read_csv(io.BytesIO(csv_bytes), dtype=str)
+        df.columns = [c.strip().lower() for c in df.columns]
+
+        # Map common aliases
+        col_map = {}
+        for c in df.columns:
+            if c in ('y', 'northing'):
+                col_map['y'] = c
+            elif c in ('x', 'easting'):
+                col_map['x'] = c
+            elif c in ('point_id', 'id'):
+                col_map['point_id'] = c
+            elif c in ('z', 'elev', 'elevation'):
+                col_map['z'] = c
+
+        if 'y' not in col_map or 'x' not in col_map:
+            raise ValueError(
+                f"CSV header must include 'y' and 'x' columns. Found: {list(df.columns)}"
+            )
+
+        out = pd.DataFrame({
+            'y': pd.to_numeric(df[col_map['y']], errors='coerce'),
+            'x': pd.to_numeric(df[col_map['x']], errors='coerce'),
+            'point_id': pd.to_numeric(
+                df[col_map['point_id']].astype(str).str.replace(r'^\s*CK\s*', '', regex=True).str.strip(),
+                errors='coerce'
+            ) if 'point_id' in col_map else None,
+            'z': pd.to_numeric(df[col_map['z']], errors='coerce') if 'z' in col_map else 0,
+        }).reset_index(drop=True)
+    else:
+        # Positional: point_id, y, x, z
+        if len(raw.columns) < 3:
+            raise ValueError(f"CSV without header must have at least 3 columns (point_id, y, x)")
+
+        raw[0] = raw[0].astype(str).str.replace(r'^\s*CK\s*', '', regex=True).str.strip()
+
+        out = pd.DataFrame({
+            'point_id': pd.to_numeric(raw[0], errors='coerce'),
+            'y': pd.to_numeric(raw[1], errors='coerce'),
+            'x': pd.to_numeric(raw[2], errors='coerce'),
+            'z': pd.to_numeric(raw[3], errors='coerce') if len(raw.columns) >= 4 else 0,
+        }).reset_index(drop=True)
+
+    if out['point_id'].isnull().all() or 'point_id' not in out.columns or out['point_id'] is None:
+        out['point_id'] = out.index + 1
+
+    return out
+
+
+def compute_deviations(csv_bytes: bytes, geojson_path: str, tif_path: str) -> dict:
+    """
+    Compute QC point deviations against detection polygons.
+
+    Loads QC points (in TIF's native CRS), finds containing detection polygons,
+    computes distance from each point to the polygon centroid (converted to cm),
+    and reprojects results to WGS84 for map display.
+
+    Args:
+        csv_bytes: Raw CSV file bytes for QC points
+        geojson_path: Path to detections GeoJSON (native CRS)
+        tif_path: Path to source GeoTIFF (for CRS and bounds)
+
+    Returns:
+        Dict with qc_points list and summary stats
+    """
+    THRESHOLD_CM = 3.0
+    FEET_TO_CM = 30.48
+
+    # Load QC points
+    qc_df = load_qc_points(csv_bytes)
+
+    # Get TIF CRS and bounds
+    with rasterio.open(tif_path) as src:
+        tif_crs = src.crs
+        tif_bounds = src.bounds
+
+    # Load detection polygons (in native CRS)
+    polygons_gdf = gpd.read_file(geojson_path)
+    if polygons_gdf.crs is None:
+        polygons_gdf = polygons_gdf.set_crs(tif_crs)
+    elif str(polygons_gdf.crs) != str(tif_crs):
+        polygons_gdf = polygons_gdf.to_crs(tif_crs)
+
+    # Drop rows with missing coordinates
+    qc_df = qc_df.dropna(subset=['x', 'y']).reset_index(drop=True)
+
+    if len(qc_df) == 0:
+        # Re-read raw CSV to show what was parsed
+        raw_df = pd.read_csv(io.BytesIO(csv_bytes), header=None, dtype=str, nrows=3)
+        preview = raw_df.to_string(index=False)
+        raise ValueError(
+            f"No valid QC points after parsing. Check column order (expected: point_id, y, x, z). "
+            f"First rows of CSV:\n{preview}"
+        )
+
+    # Convert QC points to GeoDataFrame in TIF CRS
+    points_gdf = gpd.GeoDataFrame(
+        qc_df,
+        geometry=gpd.points_from_xy(qc_df['x'], qc_df['y']),
+        crs=tif_crs
+    )
+
+    # Filter to TIF bounds
+    left, bottom, right, top = tif_bounds
+    in_bounds = (
+        (points_gdf.geometry.x >= left) &
+        (points_gdf.geometry.x <= right) &
+        (points_gdf.geometry.y >= bottom) &
+        (points_gdf.geometry.y <= top)
+    )
+    points_filtered = points_gdf[in_bounds].copy()
+
+    # Compute deviations
+    results = []
+    for _, point in points_filtered.iterrows():
+        containing = polygons_gdf[polygons_gdf.contains(point.geometry)]
+
+        if not containing.empty:
+            # Find the closest centroid among containing polygons
+            best_dist = float('inf')
+            best_poly_id = None
+            best_centroid = None
+
+            for poly_idx, poly in containing.iterrows():
+                centroid = poly.geometry.centroid
+                dist = point.geometry.distance(centroid)
+                if dist < best_dist:
+                    best_dist = dist
+                    best_poly_id = poly_idx
+                    best_centroid = centroid
+
+            deviation_cm = best_dist * FEET_TO_CM
+
+            results.append({
+                'point_id': int(point['point_id']) if pd.notna(point['point_id']) else 0,
+                'matched': True,
+                'deviation_cm': round(deviation_cm, 2),
+                'exceeds_threshold': deviation_cm > THRESHOLD_CM,
+                'point_geom': point.geometry,
+                'centroid_geom': best_centroid,
+            })
+        else:
+            results.append({
+                'point_id': int(point['point_id']) if pd.notna(point['point_id']) else 0,
+                'matched': False,
+                'deviation_cm': None,
+                'exceeds_threshold': False,
+                'point_geom': point.geometry,
+                'centroid_geom': None,
+            })
+
+    # Batch reproject QC points to WGS84
+    pts_gdf = gpd.GeoDataFrame(
+        [{'idx': i, 'geometry': r['point_geom']} for i, r in enumerate(results)],
+        crs=tif_crs
+    ).to_crs('EPSG:4326')
+
+    # Batch reproject matched centroids to WGS84
+    centroid_rows = [
+        {'idx': i, 'geometry': r['centroid_geom']}
+        for i, r in enumerate(results) if r['centroid_geom'] is not None
+    ]
+    if centroid_rows:
+        ct_gdf = gpd.GeoDataFrame(centroid_rows, crs=tif_crs).to_crs('EPSG:4326')
+        centroid_map = {int(row['idx']): row.geometry for _, row in ct_gdf.iterrows()}
+    else:
+        centroid_map = {}
+
+    # Build output
+    qc_points_out = []
+    for i, r in enumerate(results):
+        pt_wgs = pts_gdf.loc[pts_gdf['idx'] == i].geometry.iloc[0]
+        entry = {
+            'point_id': r['point_id'],
+            'lat': round(pt_wgs.y, 8),
+            'lng': round(pt_wgs.x, 8),
+            'matched': r['matched'],
+            'deviation_cm': r['deviation_cm'],
+            'exceeds_threshold': r['exceeds_threshold'],
+            'centroid_lat': None,
+            'centroid_lng': None,
+        }
+
+        if i in centroid_map:
+            ct_wgs = centroid_map[i]
+            entry['centroid_lat'] = round(ct_wgs.y, 8)
+            entry['centroid_lng'] = round(ct_wgs.x, 8)
+
+        qc_points_out.append(entry)
+
+    # Summary stats
+    matched = [r for r in results if r['matched']]
+    deviations = [r['deviation_cm'] for r in matched if r['deviation_cm'] is not None]
+
+    summary = {
+        'total_qc_points': len(points_filtered),
+        'matched_points': len(matched),
+        'unmatched_points': len(points_filtered) - len(matched),
+        'avg_deviation_cm': round(sum(deviations) / len(deviations), 2) if deviations else 0,
+        'max_deviation_cm': round(max(deviations), 2) if deviations else 0,
+        'count_exceeding_3cm': sum(1 for d in deviations if d > THRESHOLD_CM),
+        'threshold_cm': THRESHOLD_CM,
+    }
+
+    return {
+        'qc_points': qc_points_out,
+        'summary': summary,
+    }
 
 
 def cleanup_old_files(directory: str, max_age_hours: int = 1):
