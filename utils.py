@@ -765,11 +765,11 @@ def generate_deviation_report(csv_bytes: bytes, geojson_path: str, tif_path: str
             ax_s.imshow(snap_arr, extent=[s_left, s_right, s_bottom, s_top],
                         aspect='equal', origin='upper')
 
-            # Red QC point
-            ax_s.scatter(r['x'], r['y'], c='red', s=80, edgecolors='black',
+            # White QC point (matches map marker)
+            ax_s.scatter(r['x'], r['y'], c='white', s=80, edgecolors='black',
                          linewidths=0.8, zorder=4, label='QC Point')
-            # White centroid
-            ax_s.scatter(r['centroid_x'], r['centroid_y'], c='white', s=60,
+            # Red centroid (matches map marker for exceeding)
+            ax_s.scatter(r['centroid_x'], r['centroid_y'], c='red', s=60,
                          edgecolors='black', linewidths=0.8, zorder=3, label='Centroid')
             # Connecting line
             ax_s.plot([r['x'], r['centroid_x']], [r['y'], r['centroid_y']],

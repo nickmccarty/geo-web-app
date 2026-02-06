@@ -10,6 +10,15 @@ let deletedFeatures = new Set(); // Track deleted feature indices
 let qcLayer = null; // Leaflet layer group for QC markers, lines, labels
 let qcData = null; // QC analysis response from server
 
+// SVG icon constants (Bootstrap Icons) for dynamic button updates
+const ICON = {
+    image: '<svg class="btn-icon" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M6.002 5.5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0"/><path d="M2.002 1a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V3a2 2 0 0 0-2-2zm12 1a1 1 0 0 1 1 1v6.5l-3.777-1.947a.5.5 0 0 0-.577.093l-3.71 3.71-2.66-1.772a.5.5 0 0 0-.63.062L1.002 12V3a1 1 0 0 1 1-1z"/></svg>',
+    toggle: '<svg class="btn-icon" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M11 4a4 4 0 0 1 0 8H8a5 5 0 0 0 2-4 5 5 0 0 0-2-4zm-6 8a4 4 0 1 1 0-8 4 4 0 0 1 0 8M0 8a5 5 0 0 0 5 5h6a5 5 0 0 0 0-10H5a5 5 0 0 0-5 5"/></svg>',
+    trash: '<svg class="btn-icon" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0z"/><path d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4zM2.5 3h11V2h-11z"/></svg>',
+    upload: '<svg class="btn-icon" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5"/><path d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708z"/></svg>',
+    slashCircle: '<svg class="btn-icon" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14m0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16"/><path d="M11.354 4.646a.5.5 0 0 0-.708 0l-6 6a.5.5 0 0 0 .708.708l6-6a.5.5 0 0 0 0-.708"/></svg>',
+};
+
 // Progress timing state
 let progressStartTime = null;
 let reassuranceTimer = null;
@@ -93,10 +102,10 @@ toggleImageBtn.addEventListener('click', () => {
     if (imageOverlay) {
         if (map.hasLayer(imageOverlay)) {
             map.removeLayer(imageOverlay);
-            toggleImageBtn.textContent = '🖼️ Show Image';
+            toggleImageBtn.innerHTML = `${ICON.image} <span>Show Image</span>`;
         } else {
             map.addLayer(imageOverlay);
-            toggleImageBtn.textContent = '🖼️ Hide Image';
+            toggleImageBtn.innerHTML = `${ICON.image} <span>Hide Image</span>`;
         }
     }
 });
@@ -127,10 +136,10 @@ toggleDetectionsBtn.addEventListener('click', () => {
     if (detectionsLayer) {
         if (map.hasLayer(detectionsLayer)) {
             map.removeLayer(detectionsLayer);
-            toggleDetectionsBtn.textContent = '👁️ Show Detections';
+            toggleDetectionsBtn.innerHTML = `${ICON.toggle} <span>Show Detections</span>`;
         } else {
             map.addLayer(detectionsLayer);
-            toggleDetectionsBtn.textContent = '🙈 Hide Detections';
+            toggleDetectionsBtn.innerHTML = `${ICON.toggle} <span>Hide Detections</span>`;
         }
     }
 });
@@ -149,10 +158,10 @@ toggleQcBtn.addEventListener('click', () => {
     if (qcLayer) {
         if (map.hasLayer(qcLayer)) {
             map.removeLayer(qcLayer);
-            toggleQcBtn.textContent = 'Show QC Layer';
+            toggleQcBtn.innerHTML = `${ICON.slashCircle} <span>Show QC Layer</span>`;
         } else {
             map.addLayer(qcLayer);
-            toggleQcBtn.textContent = 'Hide QC Layer';
+            toggleQcBtn.innerHTML = `${ICON.slashCircle} <span>Hide QC Layer</span>`;
         }
     }
 });
@@ -466,7 +475,6 @@ function runInference(fileId) {
     setStageIcon('processing');
     activeReassuranceMessages = inferenceReassuranceMessages;
     clearLog();
-    appendLog('Starting inference...', 'status');
     startReassuranceTimer();
 
     // Create WebSocket connection
@@ -750,13 +758,32 @@ function toggleFeatureSelection(featureIndex, layer) {
     updateDeleteButtonVisibility();
 }
 
+// Clear all selections (Esc key)
+function clearSelection() {
+    if (selectedFeatures.size === 0) return;
+    selectedFeatures.clear();
+    // Reset all layer styles back to default
+    if (detectionsLayer) {
+        detectionsLayer.eachLayer(layer => {
+            layer.setStyle(getFeatureStyle(null, false));
+        });
+    }
+    updateDeleteButtonVisibility();
+}
+
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        clearSelection();
+    }
+});
+
 // Update delete button visibility based on selection
 function updateDeleteButtonVisibility() {
     const deleteBtn = document.getElementById('delete-selected-btn');
     if (deleteBtn) {
         if (selectedFeatures.size > 0) {
-            deleteBtn.style.display = 'inline-block';
-            deleteBtn.textContent = `🗑️ Delete Selected (${selectedFeatures.size})`;
+            deleteBtn.style.display = 'inline-flex';
+            deleteBtn.innerHTML = `${ICON.trash} <span>Delete Selected (${selectedFeatures.size})</span>`;
         } else {
             deleteBtn.style.display = 'none';
         }
@@ -994,7 +1021,7 @@ function uploadQcPoints(file) {
     }
 
     uploadQcBtn.disabled = true;
-    uploadQcBtn.textContent = 'Analyzing...';
+    uploadQcBtn.innerHTML = `${ICON.upload} <span>Analyzing...</span>`;
 
     const formData = new FormData();
     formData.append('file', file);
@@ -1018,7 +1045,7 @@ function uploadQcPoints(file) {
     })
     .finally(() => {
         uploadQcBtn.disabled = false;
-        uploadQcBtn.textContent = 'Upload QC Points';
+        uploadQcBtn.innerHTML = `${ICON.upload} <span>Upload QC Points</span>`;
         qcFileInput.value = '';
     });
 }
@@ -1028,7 +1055,7 @@ function displayQcResults(data) {
     renderQcStats(data.summary);
     addQcLayerToMap(data.qc_points);
     renderDeviationTable(data.qc_points);
-    toggleQcBtn.textContent = 'Hide QC Layer';
+    toggleQcBtn.innerHTML = `${ICON.slashCircle} <span>Hide QC Layer</span>`;
 }
 
 function renderQcStats(summary) {

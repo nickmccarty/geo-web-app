@@ -64,13 +64,14 @@ Navigate to: **http://localhost:8000**
 6. **Edit Detections** (optional):
    - Click polygons to select them (turns red)
    - Click again to deselect
+   - Press **Esc** to clear all selections
    - Use "Delete Selected" button to remove false positives
 7. **Toggle Layers**: Show/hide the image overlay or detections as needed
 8. **Download GeoJSON**: Export filtered results (excludes deleted detections)
 
 ### QC Deviation Analysis
 
-1. After running inference, click **Upload QC Points** and select a CSV file
+1. After running inference, click **Upload QC Points** and select a CSV file (a sample is included at `static/qc-points.csv`)
    - Supported formats: header-based (`point_id, y, x, z`) or positional columns
    - Coordinates should be in the TIF's native CRS (e.g., NAD83 State Plane, feet)
 2. The map displays QC markers, centroid markers, connecting lines, and distance labels
