@@ -539,7 +539,7 @@ def generate_deviation_report(csv_bytes: bytes, geojson_path: str, tif_path: str
 
     red_fill = PatternFill(start_color="FF4444", end_color="FF4444", fill_type="solid")
     header_font = Font(bold=True)
-    headers = ["Point ID", "Y", "X", "Z", "Deviation (cm)", "Status"]
+    headers = ["Point ID", "Y", "X", "Deviation (cm)", "Status"]
     for col, h in enumerate(headers, 1):
         cell = ws.cell(row=1, column=col, value=h)
         cell.font = header_font
@@ -548,12 +548,12 @@ def generate_deviation_report(csv_bytes: bytes, geojson_path: str, tif_path: str
         ws.cell(row=row_idx, column=1, value=r['point_id'])
         ws.cell(row=row_idx, column=2, value=r['y'])
         ws.cell(row=row_idx, column=3, value=r['x'])
-        ws.cell(row=row_idx, column=4, value=round(166 + random.randint(0, 9) / 10, 1))
-        ws.cell(row=row_idx, column=5, value=r['deviation_cm'])
-        ws.cell(row=row_idx, column=6, value="EXCEED" if r['exceeds'] else "OK")
+        # ws.cell(row=row_idx, column=4, value=round(166 + random.randint(0, 9) / 10, 1))
+        ws.cell(row=row_idx, column=4, value=r['deviation_cm'])
+        ws.cell(row=row_idx, column=5, value="EXCEED" if r['exceeds'] else "OK")
 
         if r['exceeds']:
-            for col in range(1, 7):
+            for col in range(1, 6):
                 ws.cell(row=row_idx, column=col).fill = red_fill
 
     # Average deviation row
@@ -568,9 +568,8 @@ def generate_deviation_report(csv_bytes: bytes, geojson_path: str, tif_path: str
     ws.column_dimensions['A'].width = 12
     ws.column_dimensions['B'].width = 16
     ws.column_dimensions['C'].width = 16
-    ws.column_dimensions['D'].width = 10
-    ws.column_dimensions['E'].width = 18
-    ws.column_dimensions['F'].width = 10
+    ws.column_dimensions['D'].width = 18
+    ws.column_dimensions['E'].width = 10
 
     # --- Matplotlib visualization (notebook-style, zoomed to QC area) ---
     log("Generating visualization (cropping ortho to QC area)...")
@@ -795,8 +794,8 @@ def generate_deviation_report(csv_bytes: bytes, geojson_path: str, tif_path: str
             snap_bytes = snap_buf.getvalue()
 
             # Write label cells
-            ws3.cell(row=current_row, column=1, value=f"Point {r['point_id']}").font = header_font
-            ws3.cell(row=current_row, column=2, value=f"{r['deviation_cm']} cm")
+            ws3.cell(row=current_row, column=1, value=f"{r['point_id']}").font = header_font
+            ws3.cell(row=current_row, column=2, value=f"{r['deviation_cm']}")
 
             # Embed snapshot
             snap_img = XLImage(io.BytesIO(snap_bytes))

@@ -67,6 +67,52 @@ main {
     margin-bottom: 30px;
 }
 
+/* Dashboard Cards */
+.dashboard-card {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 14px;
+    padding: 28px 32px;
+    margin-top: 12px;
+}
+
+.dashboard-card + .dashboard-card {
+    margin-top: 20px;
+}
+
+.dashboard-card .section-header {
+    margin-bottom: 18px;
+}
+
+.dashboard-card .section-header h2 {
+    font-size: 1.5rem;
+}
+
+/* Hint text with lightbulb icon */
+.hint-text {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 0.9rem;
+    margin-bottom: 18px;
+    padding: 10px 16px;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 8px;
+    border-left: 3px solid rgba(102, 126, 234, 0.5);
+}
+
+.hint-text .hint-icon {
+    flex-shrink: 0;
+    opacity: 0.6;
+}
+
+/* Button SVG icon alignment */
+.btn .btn-icon {
+    flex-shrink: 0;
+    display: inline-flex;
+}
+
 .section-header {
     display: flex;
     justify-content: space-between;
