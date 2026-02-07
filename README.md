@@ -27,30 +27,20 @@ A FastAPI-powered web application for running object detection on GeoTIFF files 
 
 ## Setup
 
-### 1. Install Dependencies
-
-```bash
-cd geo-web-app
-pip install -r requirements.txt
-```
-
-### 2. Add Model Checkpoints
+### 1. Add Model Checkpoints
 
 Place one or more `.pth` checkpoint files in the `checkpoints/` directory. The app will prefer `best_model.pth` on startup if present, otherwise it loads the first `.pth` file found.
 
-### 3. Run the Application
+### 2. Build & Run with Docker
 
 ```bash
-python app.py
+docker build -t geo-web-app-cpu .
+docker run --rm -p 8000:8000 geo-web-app-cpu
 ```
 
-Or using uvicorn directly:
+The Docker image includes all dependencies and runs inference on **CPU** — no CUDA setup required.
 
-```bash
-uvicorn app:app --reload --host 0.0.0.0 --port 8000
-```
-
-### 4. Open in Browser
+### 3. Open in Browser
 
 Navigate to: **http://localhost:8000**
 
@@ -134,19 +124,19 @@ FEET_TO_CM = 30.48     # Conversion factor (native CRS in feet)
 
 ### Model Not Loading
 
-Ensure at least one `.pth` checkpoint file exists in the `checkpoints/` directory.
-
-### CUDA Out of Memory
-
-Toggle to CPU using the device buttons in the UI, or reduce `tile_size`.
+Ensure at least one `.pth` checkpoint file exists in the `checkpoints/` directory before building the image.
 
 ### WebSocket Connection Failed
 
 Check firewall settings and ensure port 8000 is accessible.
 
-### OpenMP Error on Windows
+### Container Exits Immediately
 
-If you see `OMP: Error #15: Initializing libiomp5md.dll`, this is handled automatically via `KMP_DUPLICATE_LIB_OK=TRUE` in `utils.py`.
+Run with `-it` to see error output:
+
+```bash
+docker run --rm -it -p 8000:8000 geo-web-app-cpu
+```
 
 ## Technologies Used
 

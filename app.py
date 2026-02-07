@@ -535,6 +535,23 @@ async def qc_rerun(file_id: str):
         raise HTTPException(status_code=500, detail=f"QC rerun error: {str(e)}")
 
 
+@app.put("/detections/{file_id}")
+async def update_detections(file_id: str, request: Request):
+    """
+    Update the saved detections GeoJSON (e.g. after deleting false positives).
+    Overwrites the on-disk file so downloads and QC reruns use the filtered set.
+    """
+    results_path = UPLOAD_DIR / f"{file_id}_detections.geojson"
+    if not results_path.exists():
+        raise HTTPException(status_code=404, detail="No detections found")
+
+    body = await request.body()
+    async with aiofiles.open(results_path, 'wb') as f:
+        await f.write(body)
+
+    return JSONResponse({"status": "ok"})
+
+
 @app.get("/download/{file_id}")
 async def download_results(file_id: str):
     """

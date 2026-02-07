@@ -9,6 +9,11 @@ let selectedFeatures = new Set(); // Track selected feature indices
 let deletedFeatures = new Set(); // Track deleted feature indices
 let qcLayer = null; // Leaflet layer group for QC markers, lines, labels
 let qcData = null; // QC analysis response from server
+let drawMode = false; // Draw box mode active
+let drawStart = null; // LatLng of mousedown when drawing
+let drawRect = null; // L.rectangle preview while dragging
+let crosshairH = null; // Horizontal guide line element
+let crosshairV = null; // Vertical guide line element
 
 // SVG icon constants (Bootstrap Icons) for dynamic button updates
 const ICON = {
@@ -17,6 +22,7 @@ const ICON = {
     trash: '<svg class="btn-icon" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0z"/><path d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4zM2.5 3h11V2h-11z"/></svg>',
     upload: '<svg class="btn-icon" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5"/><path d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708z"/></svg>',
     slashCircle: '<svg class="btn-icon" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14m0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16"/><path d="M11.354 4.646a.5.5 0 0 0-.708 0l-6 6a.5.5 0 0 0 .708.708l6-6a.5.5 0 0 0 0-.708"/></svg>',
+    boundingBox: '<svg class="btn-icon" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M2 1a1 1 0 1 0 0 2 1 1 0 0 0 0-2M0 2a2 2 0 0 1 3.937-.5h8.126A2 2 0 1 1 14.5 3.937v8.126a2 2 0 1 1-2.437 2.437H3.937A2 2 0 1 1 1.5 12.063V3.937A2 2 0 0 1 0 2m2.5 1.937v8.126c.703.18 1.256.734 1.437 1.437h8.126a2 2 0 0 1 1.437-1.437V3.937A2 2 0 0 1 12.063 2.5H3.937A2 2 0 0 1 2.5 3.937M14 1a1 1 0 1 0 0 2 1 1 0 0 0 0-2M2 13a1 1 0 1 0 0 2 1 1 0 0 0 0-2m12 0a1 1 0 1 0 0 2 1 1 0 0 0 0-2"/></svg>',
 };
 
 // Progress timing state
@@ -63,6 +69,7 @@ const qcFileInput = document.getElementById('qc-file-input');
 const qcSection = document.getElementById('qc-section');
 const toggleQcBtn = document.getElementById('toggle-qc-btn');
 const downloadQcReportBtn = document.getElementById('download-qc-report-btn');
+const addBoxBtn = document.getElementById('add-box-btn');
 
 // Upload area interactions
 uploadArea.addEventListener('click', () => fileInput.click());
@@ -130,6 +137,9 @@ deleteSelectedBtn.addEventListener('click', () => {
         deleteSelectedFeatures();
     }
 });
+
+// Add Box button
+addBoxBtn.addEventListener('click', () => toggleDrawMode());
 
 // Toggle detections button
 toggleDetectionsBtn.addEventListener('click', () => {
@@ -372,6 +382,7 @@ function displayPreview(data) {
         <div><strong>Filename:</strong> ${data.filename}</div>
         <div><strong>Dimensions:</strong> ${data.metadata.width} × ${data.metadata.height} px</div>
         <div><strong>CRS:</strong> ${data.metadata.crs}</div>
+        <div><strong>GSD:</strong> ${data.metadata.gsd} ${data.metadata.gsd_unit}/px${data.metadata.gsd_cm != null ? ` (${data.metadata.gsd_cm} cm/px)` : ''}</div>
     `;
 
     // Initialize map
@@ -462,6 +473,9 @@ function flashWsPing() {
 
 // Run inference via WebSocket
 function runInference(fileId) {
+    // Exit draw mode if active
+    if (drawMode) toggleDrawMode();
+
     // Disable button
     runInferenceBtn.disabled = true;
     document.getElementById('btn-text').style.display = 'none';
@@ -650,8 +664,9 @@ function handleInferenceComplete(message) {
     if (message.detections && message.detections.features.length > 0) {
         addDetectionsToMap(message.detections);
         updateDetectionStats();
-        // Show QC upload button now that detections are available
+        // Show QC upload and Add Box buttons now that detections are available
         uploadQcBtn.style.display = 'inline-flex';
+        addBoxBtn.style.display = 'inline-flex';
     } else {
         console.warn('No detections returned');
     }
@@ -773,9 +788,140 @@ function clearSelection() {
 
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
+        if (drawMode) toggleDrawMode();
         clearSelection();
     }
 });
+
+// --- Draw Box Mode ---
+
+function toggleDrawMode() {
+    drawMode = !drawMode;
+    const mapContainer = document.getElementById('map');
+
+    if (drawMode) {
+        mapContainer.classList.add('draw-mode');
+        map.dragging.disable();
+        map.doubleClickZoom.disable();
+
+        // Create crosshair guide lines
+        crosshairH = document.createElement('div');
+        crosshairH.className = 'draw-crosshair-h';
+        crosshairV = document.createElement('div');
+        crosshairV.className = 'draw-crosshair-v';
+        mapContainer.appendChild(crosshairH);
+        mapContainer.appendChild(crosshairV);
+
+        map.on('mousemove', onDrawMouseMove);
+        map.on('mousedown', onDrawMouseDown);
+
+        addBoxBtn.classList.add('draw-active');
+        addBoxBtn.innerHTML = `${ICON.boundingBox} <span>Drawing...</span>`;
+    } else {
+        mapContainer.classList.remove('draw-mode');
+        map.dragging.enable();
+        map.doubleClickZoom.enable();
+
+        // Remove crosshair guide lines
+        if (crosshairH && crosshairH.parentNode) crosshairH.parentNode.removeChild(crosshairH);
+        if (crosshairV && crosshairV.parentNode) crosshairV.parentNode.removeChild(crosshairV);
+        crosshairH = null;
+        crosshairV = null;
+
+        // Clean up any in-progress drawing
+        if (drawRect) { map.removeLayer(drawRect); drawRect = null; }
+        drawStart = null;
+
+        map.off('mousemove', onDrawMouseMove);
+        map.off('mousedown', onDrawMouseDown);
+
+        addBoxBtn.classList.remove('draw-active');
+        addBoxBtn.innerHTML = `${ICON.boundingBox} <span>Add Box</span>`;
+    }
+}
+
+function onDrawMouseMove(e) {
+    // Update crosshair positions
+    if (crosshairH) crosshairH.style.top = e.containerPoint.y + 'px';
+    if (crosshairV) crosshairV.style.left = e.containerPoint.x + 'px';
+
+    // Update rectangle preview while dragging
+    if (drawStart) {
+        const bounds = L.latLngBounds(drawStart, e.latlng);
+        if (drawRect) {
+            drawRect.setBounds(bounds);
+        } else {
+            drawRect = L.rectangle(bounds, {
+                color: '#667eea',
+                weight: 2,
+                dashArray: '6 4',
+                fillOpacity: 0.15,
+                interactive: false
+            }).addTo(map);
+        }
+    }
+}
+
+function onDrawMouseDown(e) {
+    L.DomEvent.stopPropagation(e);
+    L.DomEvent.preventDefault(e);
+    drawStart = e.latlng;
+
+    // Listen for mouseup on the document to catch release outside map
+    const onMouseUp = (evt) => {
+        document.removeEventListener('mouseup', onMouseUp);
+        if (!drawStart) return;
+
+        // Get end latlng from the map
+        const endPoint = map.containerPointToLatLng(
+            L.point(evt.clientX - map.getContainer().getBoundingClientRect().left,
+                    evt.clientY - map.getContainer().getBoundingClientRect().top)
+        );
+
+        const bounds = L.latLngBounds(drawStart, endPoint);
+
+        // Remove preview rectangle
+        if (drawRect) { map.removeLayer(drawRect); drawRect = null; }
+        drawStart = null;
+
+        // Skip if too small (accidental click)
+        const size = map.latLngToContainerPoint(bounds.getNorthEast())
+            .subtract(map.latLngToContainerPoint(bounds.getSouthWest()));
+        if (Math.abs(size.x) < 4 || Math.abs(size.y) < 4) return;
+
+        addManualDetection(bounds);
+    };
+
+    document.addEventListener('mouseup', onMouseUp);
+}
+
+function addManualDetection(bounds) {
+    const sw = bounds.getSouthWest();
+    const ne = bounds.getNorthEast();
+
+    const feature = {
+        type: 'Feature',
+        properties: { class: 'manual', score: null },
+        geometry: {
+            type: 'Polygon',
+            coordinates: [[
+                [sw.lng, sw.lat],
+                [ne.lng, sw.lat],
+                [ne.lng, ne.lat],
+                [sw.lng, ne.lat],
+                [sw.lng, sw.lat]
+            ]]
+        }
+    };
+
+    // Append to master detections list
+    allDetections.features.push(feature);
+
+    // Rebuild map layer, update stats, sync to server + QC rerun
+    rebuildDetectionsLayer();
+    updateDetectionStats();
+    syncDetectionsToServer();
+}
 
 // Update delete button visibility based on selection
 function updateDeleteButtonVisibility() {
@@ -805,6 +951,42 @@ function deleteSelectedFeatures() {
 
     // Update stats
     updateDetectionStats();
+
+    // Sync filtered detections to server
+    syncDetectionsToServer();
+}
+
+// Push filtered detections to server and re-run QC if active
+function syncDetectionsToServer() {
+    if (!allDetections || !currentFileId) return;
+
+    const filteredGeoJSON = {
+        type: 'FeatureCollection',
+        features: allDetections.features.filter((_, index) => !deletedFeatures.has(index))
+    };
+
+    fetch(`/detections/${currentFileId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(filteredGeoJSON)
+    })
+    .then(r => {
+        if (!r.ok) throw new Error('Failed to sync detections');
+        // Re-run QC analysis if it was previously run
+        if (qcData !== null) {
+            return fetch(`/qc-rerun/${currentFileId}`);
+        }
+    })
+    .then(r => {
+        if (r && r.ok) return r.json();
+    })
+    .then(data => {
+        if (data) {
+            qcData = data;
+            displayQcResults(data);
+        }
+    })
+    .catch(err => console.warn('Sync/QC rerun error:', err.message));
 }
 
 // Rebuild detections layer excluding deleted features
@@ -1190,6 +1372,7 @@ function renderDeviationTable(qcPoints) {
             const lat = parseFloat(row.dataset.lat);
             const lng = parseFloat(row.dataset.lng);
             if (!isNaN(lat) && !isNaN(lng)) {
+                document.getElementById('map').scrollIntoView({ behavior: 'smooth', block: 'center' });
                 map.setView([lat, lng], 28, { animate: true });
             }
         });

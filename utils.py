@@ -33,11 +33,30 @@ def generate_preview_image(tif_path: str, max_size: int = 1024) -> Tuple[bytes, 
         data = src.read([1, 2, 3])
 
         # Get metadata
+        res_x, res_y = src.res  # pixel size in CRS units
+        gsd = round((res_x + res_y) / 2, 4)
+        try:
+            gsd_unit = src.crs.linear_units
+        except Exception:
+            gsd_unit = 'units'
+
+        # Convert GSD to cm
+        unit_lower = gsd_unit.lower()
+        if 'foot' in unit_lower or 'feet' in unit_lower or 'ft' in unit_lower:
+            gsd_cm = round(gsd * 30.48, 2)
+        elif 'metre' in unit_lower or 'meter' in unit_lower or unit_lower == 'm':
+            gsd_cm = round(gsd * 100, 2)
+        else:
+            gsd_cm = None
+
         metadata = {
             'width': src.width,
             'height': src.height,
             'crs': str(src.crs),
-            'bounds': list(src.bounds)
+            'bounds': list(src.bounds),
+            'gsd': gsd,
+            'gsd_unit': gsd_unit,
+            'gsd_cm': gsd_cm,
         }
 
         # Calculate resize factor
@@ -696,14 +715,13 @@ def generate_deviation_report(csv_bytes: bytes, geojson_path: str, tif_path: str
     ws2.cell(row=1, column=2, value="X").font = header_font
     ws2.cell(row=1, column=3, value="ELEV").font = header_font
 
-    if results:
-        # Only matched centroids — reproject to WGS84
-        centroid_geoms = [r['centroid_geom'] for r in results]
-        ct_gdf = gpd.GeoDataFrame(
-            geometry=centroid_geoms, crs=tif_crs
-        ).to_crs('EPSG:4326')
+    if len(polygons_gdf) > 0:
+        # All detection centroids — reproject to WGS84
+        all_centroids_gdf = polygons_gdf.copy()
+        all_centroids_gdf['geometry'] = all_centroids_gdf.geometry.centroid
+        all_centroids_gdf = all_centroids_gdf.to_crs('EPSG:4326')
 
-        for row_idx, (_, row) in enumerate(ct_gdf.iterrows(), 2):
+        for row_idx, (_, row) in enumerate(all_centroids_gdf.iterrows(), 2):
             ws2.cell(row=row_idx, column=1, value=round(row.geometry.y, 8))
             ws2.cell(row=row_idx, column=2, value=round(row.geometry.x, 8))
             ws2.cell(row=row_idx, column=3, value=round(166 + random.randint(0, 9) / 10, 1))
