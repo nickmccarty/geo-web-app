@@ -18,6 +18,7 @@ A FastAPI-powered web application for running object detection on GeoTIFF files 
 - **Model selection** - switch between `.pth` checkpoints from a dropdown
 - **Device toggle** - run inference on CPU or GPU
 - **Detection visualization** with interactive editing (select, delete, toggle)
+- **Manual box drawing** - add detection boxes directly on the map with precision crosshairs
 - **Filtered GeoJSON export** with proper CRS preservation
 - **Automatic geometry merging** for cleaner results
 - **QC Deviation Analysis** - upload a CSV of check points and compare against detections
@@ -56,8 +57,13 @@ Navigate to: **http://localhost:8000**
    - Click again to deselect
    - Press **Esc** to clear all selections
    - Use "Delete Selected" button to remove false positives
-7. **Toggle Layers**: Show/hide the image overlay or detections as needed
-8. **Download GeoJSON**: Export filtered results (excludes deleted detections)
+7. **Add Manual Detections** (optional):
+   - Click **Add Box** to enter draw mode (crosshair cursor with guide lines)
+   - Click and drag on the map to draw a detection rectangle
+   - Draw mode stays active for multiple boxes; press **Esc** or click **Add Box** again to exit
+   - Drawn boxes are automatically synced and included in GeoJSON exports and QC analysis
+8. **Toggle Layers**: Show/hide the image overlay or detections as needed
+9. **Download GeoJSON**: Export filtered results (excludes deleted detections, includes manual boxes)
 
 ### QC Deviation Analysis
 
@@ -85,6 +91,7 @@ Navigate to: **http://localhost:8000**
 | `POST` | `/qc-analysis/{file_id}` | Run QC deviation analysis (accepts CSV upload) |
 | `GET` | `/qc-rerun/{file_id}` | Re-run QC analysis with current detections |
 | `GET` | `/qc-report/{file_id}` | Download generated Excel report |
+| `PUT` | `/detections/{file_id}` | Update detections GeoJSON (after edits or manual boxes) |
 | `GET` | `/download/{file_id}` | Download detection results as GeoJSON |
 | `GET` | `/health` | Health check |
 
