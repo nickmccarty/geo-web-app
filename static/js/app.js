@@ -481,9 +481,10 @@ function runInference(fileId) {
     document.getElementById('btn-text').style.display = 'none';
     document.getElementById('btn-spinner').style.display = 'inline-block';
 
-    // Show progress section
+    // Show progress section and scroll to it
     progressSection.style.display = 'block';
     resultsSection.style.display = 'none';
+    progressSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
     // Start reassurance for long inference (use inference-specific messages)
     setStageIcon('processing');
@@ -790,6 +791,9 @@ document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
         if (drawMode) toggleDrawMode();
         clearSelection();
+    }
+    if ((e.key === 'Delete' || e.key === 'Backspace') && selectedFeatures.size > 0) {
+        deleteSelectedFeatures();
     }
 });
 
@@ -1220,7 +1224,7 @@ function uploadQcPoints(file) {
     })
     .then(data => {
         qcData = data;
-        displayQcResults(data);
+        displayQcResults(data, true);
     })
     .catch(error => {
         alert(`QC Analysis Error: ${error.message}`);
@@ -1232,12 +1236,13 @@ function uploadQcPoints(file) {
     });
 }
 
-function displayQcResults(data) {
+function displayQcResults(data, scroll = false) {
     qcSection.style.display = 'block';
     renderQcStats(data.summary);
     addQcLayerToMap(data.qc_points);
     renderDeviationTable(data.qc_points);
     toggleQcBtn.innerHTML = `${ICON.slashCircle} <span>Hide QC Layer</span>`;
+    if (scroll) qcSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function renderQcStats(summary) {
