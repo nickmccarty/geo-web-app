@@ -575,6 +575,47 @@ async def download_results(file_id: str):
     )
 
 
+@app.post("/upload-geojson/{file_id}")
+async def upload_geojson(file_id: str, file: UploadFile = File(...)):
+    """
+    Accept a GeoJSON file, reproject from the TIF's native CRS to EPSG:4326,
+    and return the reprojected GeoJSON for Leaflet display.
+    """
+    import geopandas as gpd
+    import rasterio
+    import json
+
+    if not file.filename.lower().endswith(('.geojson', '.json')):
+        raise HTTPException(status_code=400, detail="File must be .geojson or .json")
+
+    tif_path = UPLOAD_DIR / f"{file_id}.tif"
+    if not tif_path.exists():
+        raise HTTPException(status_code=404, detail="TIF not found for this file_id")
+
+    content = await file.read()
+
+    def reproject():
+        gdf = gpd.read_file(io.BytesIO(content))
+
+        # Get TIF CRS
+        with rasterio.open(str(tif_path)) as src:
+            tif_crs = src.crs
+
+        # If GeoJSON has no CRS or is already in the TIF CRS, assign TIF CRS
+        if gdf.crs is None or str(gdf.crs) == str(tif_crs):
+            gdf = gdf.set_crs(tif_crs, allow_override=True)
+
+        # Reproject to WGS84
+        gdf_wgs84 = gdf.to_crs('EPSG:4326')
+
+        return json.loads(gdf_wgs84.to_json())
+
+    import io
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, reproject)
+    return JSONResponse(result)
+
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""

@@ -49,6 +49,15 @@ def generate_preview_image(tif_path: str, max_size: int = 1024) -> Tuple[bytes, 
         else:
             gsd_cm = None
 
+        # Compute area in acres from native CRS bounds
+        area_native = (src.bounds.right - src.bounds.left) * (src.bounds.top - src.bounds.bottom)
+        if 'foot' in unit_lower or 'feet' in unit_lower or 'ft' in unit_lower:
+            acres = round(area_native / 43560, 2)
+        elif 'metre' in unit_lower or 'meter' in unit_lower or unit_lower == 'm':
+            acres = round(area_native / 4046.86, 2)
+        else:
+            acres = None
+
         metadata = {
             'width': src.width,
             'height': src.height,
@@ -57,6 +66,7 @@ def generate_preview_image(tif_path: str, max_size: int = 1024) -> Tuple[bytes, 
             'gsd': gsd,
             'gsd_unit': gsd_unit,
             'gsd_cm': gsd_cm,
+            'acres': acres,
         }
 
         # Calculate resize factor
@@ -579,9 +589,9 @@ def generate_deviation_report(csv_bytes: bytes, geojson_path: str, tif_path: str
     if results:
         deviations = [r['deviation_cm'] for r in results]
         avg_row = len(results) + 3
-        ws.cell(row=avg_row, column=4, value="Average deviation (cm)")
-        ws.cell(row=avg_row, column=4).font = Font(bold=True)
-        ws.cell(row=avg_row, column=5, value=round(sum(deviations) / len(deviations), 2))
+        ws.cell(row=avg_row, column=3, value="Avg. Deviation (cm)")
+        ws.cell(row=avg_row, column=3).font = Font(bold=True)
+        ws.cell(row=avg_row, column=4, value=round(sum(deviations) / len(deviations), 2))
 
     # Column widths
     ws.column_dimensions['A'].width = 12

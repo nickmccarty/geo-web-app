@@ -9,6 +9,7 @@ let selectedFeatures = new Set(); // Track selected feature indices
 let deletedFeatures = new Set(); // Track deleted feature indices
 let qcLayer = null; // Leaflet layer group for QC markers, lines, labels
 let qcData = null; // QC analysis response from server
+let geojsonLayer = null; // Uploaded GeoJSON overlay layer
 let drawMode = false; // Draw box mode active
 let drawStart = null; // LatLng of mousedown when drawing
 let drawRect = null; // L.rectangle preview while dragging
@@ -23,6 +24,7 @@ const ICON = {
     upload: '<svg class="btn-icon" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5"/><path d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708z"/></svg>',
     slashCircle: '<svg class="btn-icon" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14m0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16"/><path d="M11.354 4.646a.5.5 0 0 0-.708 0l-6 6a.5.5 0 0 0 .708.708l6-6a.5.5 0 0 0 0-.708"/></svg>',
     boundingBox: '<svg class="btn-icon" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M2 1a1 1 0 1 0 0 2 1 1 0 0 0 0-2M0 2a2 2 0 0 1 3.937-.5h8.126A2 2 0 1 1 14.5 3.937v8.126a2 2 0 1 1-2.437 2.437H3.937A2 2 0 1 1 1.5 12.063V3.937A2 2 0 0 1 0 2m2.5 1.937v8.126c.703.18 1.256.734 1.437 1.437h8.126a2 2 0 0 1 1.437-1.437V3.937A2 2 0 0 1 12.063 2.5H3.937A2 2 0 0 1 2.5 3.937M14 1a1 1 0 1 0 0 2 1 1 0 0 0 0-2M2 13a1 1 0 1 0 0 2 1 1 0 0 0 0-2m12 0a1 1 0 1 0 0 2 1 1 0 0 0 0-2"/></svg>',
+    layers: '<svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M8.235 1.559a.5.5 0 0 0-.47 0l-7.5 4a.5.5 0 0 0 0 .882L3.188 8 .264 9.559a.5.5 0 0 0 0 .882l7.5 4a.5.5 0 0 0 .47 0l7.5-4a.5.5 0 0 0 0-.882L12.813 8l2.922-1.559a.5.5 0 0 0 0-.882zm3.515 7.008L14.438 10 8 13.433 1.562 10 4.25 8.567l3.515 1.874a.5.5 0 0 0 .47 0zM8 9.433 1.562 6 8 2.567 14.438 6z"/></svg>',
 };
 
 // Progress timing state
@@ -380,7 +382,7 @@ function displayPreview(data) {
     const metadata = document.getElementById('metadata');
     metadata.innerHTML = `
         <div><strong>Filename:</strong> ${data.filename}</div>
-        <div><strong>Dimensions:</strong> ${data.metadata.width} × ${data.metadata.height} px</div>
+        <div><strong>Dimensions:</strong> ${data.metadata.width} × ${data.metadata.height} px${data.metadata.acres != null ? ` (${data.metadata.acres} acres)` : ''}</div>
         <div><strong>CRS:</strong> ${data.metadata.crs}</div>
         <div><strong>GSD:</strong> ${data.metadata.gsd} ${data.metadata.gsd_unit}/px${data.metadata.gsd_cm != null ? ` (${data.metadata.gsd_cm} cm/px)` : ''}</div>
     `;
@@ -438,6 +440,249 @@ function initializeMap(data) {
         fillOpacity: 0,
         dashArray: '5, 5'
     }).addTo(map);
+
+    // Clear stale GeoJSON reference (layer was destroyed by map.remove())
+    geojsonLayer = null;
+
+    // Add layer control
+    addLayerControl();
+}
+
+// Layer control panel (Leaflet custom control)
+function addLayerControl() {
+    const LayerControl = L.Control.extend({
+        options: { position: 'topright' },
+        onAdd: function () {
+            const container = L.DomUtil.create('div', 'leaflet-bar layer-control');
+
+            // Toggle button
+            const btn = L.DomUtil.create('a', 'layer-control-btn', container);
+            btn.innerHTML = ICON.layers;
+            btn.href = '#';
+            btn.title = 'Layer Controls';
+
+            // Panel
+            const panel = L.DomUtil.create('div', 'layer-panel', container);
+            panel.style.display = 'none';
+
+            // -- Panel header --
+            const header = L.DomUtil.create('div', 'layer-panel-header', panel);
+            header.textContent = 'Layers';
+
+            // -- Image opacity row --
+            const imgRow = L.DomUtil.create('div', 'layer-panel-row', panel);
+            const imgLabel = L.DomUtil.create('label', '', imgRow);
+            imgLabel.textContent = 'Image';
+            const imgSlider = L.DomUtil.create('input', 'layer-slider', imgRow);
+            imgSlider.type = 'range';
+            imgSlider.min = '0';
+            imgSlider.max = '1';
+            imgSlider.step = '0.05';
+            imgSlider.value = '0.7';
+
+            imgSlider.addEventListener('input', () => {
+                if (imageOverlay) imageOverlay.setOpacity(parseFloat(imgSlider.value));
+            });
+
+            // -- Detections opacity row (hidden until detections exist) --
+            const detRow = L.DomUtil.create('div', 'layer-panel-row', panel);
+            detRow.id = 'layer-det-row';
+            detRow.style.display = 'none';
+            const detLabel = L.DomUtil.create('label', '', detRow);
+            detLabel.textContent = 'Detections';
+            const detSlider = L.DomUtil.create('input', 'layer-slider', detRow);
+            detSlider.type = 'range';
+            detSlider.min = '0';
+            detSlider.max = '1';
+            detSlider.step = '0.05';
+            detSlider.value = '1';
+
+            detSlider.addEventListener('input', () => {
+                if (detectionsLayer) {
+                    const val = detSlider.value;
+                    detectionsLayer.eachLayer(l => { if (l._path) l._path.style.opacity = val; });
+                }
+            });
+
+            // -- Divider --
+            L.DomUtil.create('div', 'layer-panel-divider', panel);
+
+            // -- GeoJSON upload section --
+            const gjSection = L.DomUtil.create('div', 'layer-panel-geojson', panel);
+
+            const uploadBtn = L.DomUtil.create('button', 'layer-panel-upload-btn', gjSection);
+            uploadBtn.innerHTML = `${ICON.layers} <span>Add GeoJSON</span>`;
+
+            const fileInput = L.DomUtil.create('input', '', gjSection);
+            fileInput.type = 'file';
+            fileInput.accept = '.geojson,.json';
+            fileInput.style.display = 'none';
+
+            // Status log area (below upload button)
+            const gjLog = L.DomUtil.create('div', 'layer-panel-log', gjSection);
+            gjLog.style.display = 'none';
+
+            function gjLogMsg(msg, isError) {
+                gjLog.style.display = 'block';
+                const line = L.DomUtil.create('div', 'layer-panel-log-line' + (isError ? ' log-err' : ''), gjLog);
+                line.textContent = msg;
+                gjLog.scrollTop = gjLog.scrollHeight;
+            }
+            function gjLogClear() {
+                gjLog.innerHTML = '';
+                gjLog.style.display = 'none';
+            }
+
+            uploadBtn.addEventListener('click', () => fileInput.click());
+
+            // -- GeoJSON controls (hidden until loaded) --
+            const gjControls = L.DomUtil.create('div', 'layer-panel-gj-controls', gjSection);
+            gjControls.style.display = 'none';
+
+            const gjInfo = L.DomUtil.create('div', 'layer-panel-gj-info', gjControls);
+            const gjName = L.DomUtil.create('span', 'layer-panel-gj-name', gjInfo);
+            gjName.textContent = '';
+            const gjToggle = L.DomUtil.create('input', 'layer-panel-gj-toggle', gjInfo);
+            gjToggle.type = 'checkbox';
+            gjToggle.checked = true;
+            gjToggle.title = 'Toggle GeoJSON visibility';
+
+            const gjRow = L.DomUtil.create('div', 'layer-panel-row', gjControls);
+            const gjLabel = L.DomUtil.create('label', '', gjRow);
+            gjLabel.textContent = 'GeoJSON';
+            const gjSlider = L.DomUtil.create('input', 'layer-slider', gjRow);
+            gjSlider.type = 'range';
+            gjSlider.min = '0';
+            gjSlider.max = '1';
+            gjSlider.step = '0.05';
+            gjSlider.value = '0.7';
+
+            gjSlider.addEventListener('input', () => {
+                if (geojsonLayer) {
+                    const val = gjSlider.value;
+                    geojsonLayer.eachLayer(l => { if (l._path) l._path.style.opacity = val; });
+                }
+            });
+
+            gjToggle.addEventListener('change', () => {
+                if (!geojsonLayer) return;
+                if (gjToggle.checked) {
+                    map.addLayer(geojsonLayer);
+                } else {
+                    map.removeLayer(geojsonLayer);
+                }
+            });
+
+            // File input handler — POST to backend for CRS reprojection
+            fileInput.addEventListener('change', () => {
+                const file = fileInput.files[0];
+                if (!file) return;
+
+                gjLogClear();
+                gjControls.style.display = 'none';
+                uploadBtn.innerHTML = '<span class="layer-spinner"></span> <span>Reprojecting...</span>';
+                uploadBtn.disabled = true;
+                gjLogMsg(`Uploading ${file.name}...`);
+
+                const formData = new FormData();
+                formData.append('file', file);
+                const fileName = file.name;
+
+                fetch(`/upload-geojson/${currentFileId}`, { method: 'POST', body: formData })
+                    .then(resp => {
+                        if (!resp.ok) return resp.json().then(e => { throw new Error(e.detail || 'Upload failed'); });
+                        gjLogMsg('Reprojecting to WGS84...');
+                        return resp.json();
+                    })
+                    .then(data => {
+                        const features = data.features || [];
+                        gjLogMsg(`${features.length} feature(s) reprojected.`);
+
+                        if (features.length === 0) {
+                            gjLogMsg('No features returned.', true);
+                            uploadBtn.innerHTML = `${ICON.layers} <span>Add GeoJSON</span>`;
+                            uploadBtn.disabled = false;
+                            return;
+                        }
+
+                        // Remove previous GeoJSON layer
+                        if (geojsonLayer) {
+                            map.removeLayer(geojsonLayer);
+                            geojsonLayer = null;
+                        }
+
+                        gjLogMsg('Adding to map...');
+                        geojsonLayer = L.geoJSON(data, {
+                            style: {
+                                color: '#ff9800',
+                                weight: 2,
+                                fillColor: '#ff9800',
+                                fillOpacity: 0.15
+                            },
+                            onEachFeature: (feature, layer) => {
+                                if (feature.properties) {
+                                    const entries = Object.entries(feature.properties)
+                                        .filter(([, v]) => v != null)
+                                        .slice(0, 6)
+                                        .map(([k, v]) => `<b>${k}:</b> ${v}`)
+                                        .join('<br>');
+                                    if (entries) layer.bindPopup(`<div style="padding:6px;font-size:0.85rem">${entries}</div>`);
+                                }
+                            }
+                        }).addTo(map);
+
+                        // Report bounds
+                        try {
+                            const b = geojsonLayer.getBounds();
+                            gjLogMsg(`Bounds: [${b.getSouth().toFixed(4)}, ${b.getWest().toFixed(4)}] to [${b.getNorth().toFixed(4)}, ${b.getEast().toFixed(4)}]`);
+                        } catch (boundsErr) {
+                            gjLogMsg('Could not compute bounds.', true);
+                        }
+
+                        // Show controls
+                        gjName.textContent = fileName;
+                        gjToggle.checked = true;
+                        gjControls.style.display = 'block';
+                        uploadBtn.innerHTML = `${ICON.layers} <span>Replace GeoJSON</span>`;
+                        uploadBtn.disabled = false;
+                        gjLogMsg('Done.');
+                    })
+                    .catch(err => {
+                        gjLogMsg('Error: ' + err.message, true);
+                        uploadBtn.innerHTML = `${ICON.layers} <span>Add GeoJSON</span>`;
+                        uploadBtn.disabled = false;
+                    });
+
+                fileInput.value = '';
+            });
+
+            // Toggle panel
+            L.DomEvent.on(btn, 'click', (e) => {
+                L.DomEvent.preventDefault(e);
+                panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+            });
+
+            // Prevent map interaction when using panel
+            L.DomEvent.disableClickPropagation(container);
+            L.DomEvent.disableScrollPropagation(container);
+
+            // Expose detection row show function
+            container._showDetRow = () => { detRow.style.display = ''; };
+            this._container = container;
+
+            return container;
+        }
+    });
+
+    map._layerControl = new LayerControl();
+    map.addControl(map._layerControl);
+}
+
+// Show detections slider in layer panel (called after inference)
+function showDetectionsLayerRow() {
+    if (map && map._layerControl && map._layerControl._container) {
+        map._layerControl._container._showDetRow();
+    }
 }
 
 // WebSocket indicator helpers
@@ -665,6 +910,7 @@ function handleInferenceComplete(message) {
     if (message.detections && message.detections.features.length > 0) {
         addDetectionsToMap(message.detections);
         updateDetectionStats();
+        showDetectionsLayerRow();
         // Show QC upload and Add Box buttons now that detections are available
         uploadQcBtn.style.display = 'inline-flex';
         addBoxBtn.style.display = 'inline-flex';
