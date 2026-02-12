@@ -564,6 +564,52 @@ function addLayerControl() {
                 }
             });
 
+            // -- QC analysis against uploaded GeoJSON --
+            L.DomUtil.create('div', 'layer-panel-divider', gjControls);
+            const gjQcBtn = L.DomUtil.create('button', 'layer-panel-upload-btn layer-panel-qc-btn', gjControls);
+            gjQcBtn.innerHTML = `${ICON.upload} <span>Upload QC Points</span>`;
+            const gjQcInput = L.DomUtil.create('input', '', gjControls);
+            gjQcInput.type = 'file';
+            gjQcInput.accept = '.csv';
+            gjQcInput.style.display = 'none';
+
+            gjQcBtn.addEventListener('click', () => gjQcInput.click());
+
+            gjQcInput.addEventListener('change', () => {
+                const csvFile = gjQcInput.files[0];
+                if (!csvFile || !csvFile.name.toLowerCase().endsWith('.csv')) {
+                    alert('Please upload a .csv file');
+                    return;
+                }
+
+                gjQcBtn.disabled = true;
+                gjQcBtn.innerHTML = '<span class="layer-spinner"></span> <span>Analyzing...</span>';
+
+                const formData = new FormData();
+                formData.append('file', csvFile);
+
+                fetch(`/qc-analysis/${currentFileId}?source=uploaded`, {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(resp => {
+                    if (!resp.ok) return resp.json().then(e => { throw new Error(e.detail || 'QC analysis failed'); });
+                    return resp.json();
+                })
+                .then(data => {
+                    qcData = data;
+                    displayQcResults(data, true);
+                })
+                .catch(err => {
+                    alert(`QC Analysis Error: ${err.message}`);
+                })
+                .finally(() => {
+                    gjQcBtn.disabled = false;
+                    gjQcBtn.innerHTML = `${ICON.upload} <span>Upload QC Points</span>`;
+                    gjQcInput.value = '';
+                });
+            });
+
             gjToggle.addEventListener('change', () => {
                 if (!geojsonLayer) return;
                 if (gjToggle.checked) {

@@ -385,12 +385,13 @@ async def websocket_inference(websocket: WebSocket, file_id: str):
 
 
 @app.post("/qc-analysis/{file_id}")
-async def qc_analysis(file_id: str, file: UploadFile = File(...)):
+async def qc_analysis(file_id: str, file: UploadFile = File(...), source: str = "detections"):
     """
-    Run QC deviation analysis against detection results.
+    Run QC deviation analysis against detection results or uploaded GeoJSON.
 
     Accepts a QC check points CSV, computes deviations against
-    the saved detection polygons, and returns results as JSON.
+    the saved detection polygons (source=detections) or an uploaded
+    GeoJSON (source=uploaded), and returns results as JSON.
     """
     if not file.filename.lower().endswith('.csv'):
         raise HTTPException(status_code=400, detail="Only .csv files are supported")
@@ -399,9 +400,14 @@ async def qc_analysis(file_id: str, file: UploadFile = File(...)):
     if not tif_path.exists():
         raise HTTPException(status_code=404, detail="Source file not found")
 
-    geojson_path = UPLOAD_DIR / f"{file_id}_detections.geojson"
-    if not geojson_path.exists():
-        raise HTTPException(status_code=404, detail="No detections found. Run inference first.")
+    if source == "uploaded":
+        geojson_path = UPLOAD_DIR / f"{file_id}_uploaded.geojson"
+        if not geojson_path.exists():
+            raise HTTPException(status_code=404, detail="No uploaded GeoJSON found.")
+    else:
+        geojson_path = UPLOAD_DIR / f"{file_id}_detections.geojson"
+        if not geojson_path.exists():
+            raise HTTPException(status_code=404, detail="No detections found. Run inference first.")
 
     csv_bytes = await file.read()
 
@@ -432,10 +438,14 @@ async def ws_qc_report(websocket: WebSocket, file_id: str):
     await websocket.accept()
 
     csv_path = UPLOAD_DIR / f"{file_id}_qc.csv"
-    geojson_path = UPLOAD_DIR / f"{file_id}_detections.geojson"
     tif_path = UPLOAD_DIR / f"{file_id}.tif"
 
-    for path, label in [(csv_path, "QC CSV"), (geojson_path, "Detections"), (tif_path, "Source TIF")]:
+    # Check for uploaded GeoJSON first, fall back to detections
+    uploaded_path = UPLOAD_DIR / f"{file_id}_uploaded.geojson"
+    detections_path = UPLOAD_DIR / f"{file_id}_detections.geojson"
+    geojson_path = uploaded_path if uploaded_path.exists() else detections_path
+
+    for path, label in [(csv_path, "QC CSV"), (geojson_path, "Detections/GeoJSON"), (tif_path, "Source TIF")]:
         if not path.exists():
             await websocket.send_json({"type": "error", "message": f"{label} not found."})
             await websocket.close()
@@ -503,19 +513,25 @@ async def qc_report(file_id: str):
 
 
 @app.get("/qc-rerun/{file_id}")
-async def qc_rerun(file_id: str):
+async def qc_rerun(file_id: str, source: str = "detections"):
     """
     Re-run QC deviation analysis using the previously uploaded CSV
-    and the current (possibly updated) detections GeoJSON.
+    and the current detections GeoJSON or uploaded GeoJSON.
     """
     csv_path = UPLOAD_DIR / f"{file_id}_qc.csv"
-    geojson_path = UPLOAD_DIR / f"{file_id}_detections.geojson"
     tif_path = UPLOAD_DIR / f"{file_id}.tif"
+
+    if source == "uploaded":
+        geojson_path = UPLOAD_DIR / f"{file_id}_uploaded.geojson"
+        if not geojson_path.exists():
+            raise HTTPException(status_code=404, detail="No uploaded GeoJSON found.")
+    else:
+        geojson_path = UPLOAD_DIR / f"{file_id}_detections.geojson"
+        if not geojson_path.exists():
+            raise HTTPException(status_code=404, detail="No detections found. Run inference first.")
 
     if not csv_path.exists():
         raise HTTPException(status_code=404, detail="No QC CSV found. Upload one first.")
-    if not geojson_path.exists():
-        raise HTTPException(status_code=404, detail="No detections found. Run inference first.")
     if not tif_path.exists():
         raise HTTPException(status_code=404, detail="Source TIF not found.")
 
@@ -604,6 +620,11 @@ async def upload_geojson(file_id: str, file: UploadFile = File(...)):
         # If GeoJSON has no CRS or is already in the TIF CRS, assign TIF CRS
         if gdf.crs is None or str(gdf.crs) == str(tif_crs):
             gdf = gdf.set_crs(tif_crs, allow_override=True)
+
+        # Save native-CRS version for QC analysis
+        native_path = str(UPLOAD_DIR / f"{file_id}_uploaded.geojson")
+        gdf_native = gdf.to_crs(tif_crs) if str(gdf.crs) != str(tif_crs) else gdf
+        gdf_native.to_file(native_path, driver='GeoJSON')
 
         # Reproject to WGS84
         gdf_wgs84 = gdf.to_crs('EPSG:4326')

@@ -1121,6 +1121,23 @@ footer {
     fill: #ff9800;
 }
 
+/* QC analysis button variant (in layer panel) */
+.layer-panel-qc-btn {
+    color: #667eea !important;
+    background: rgba(102, 126, 234, 0.1) !important;
+    border-color: rgba(102, 126, 234, 0.3) !important;
+    margin-top: 6px;
+}
+
+.layer-panel-qc-btn:hover {
+    background: rgba(102, 126, 234, 0.2) !important;
+    border-color: rgba(102, 126, 234, 0.5) !important;
+}
+
+.layer-panel-qc-btn svg {
+    fill: #667eea !important;
+}
+
 /* GeoJSON controls (shown after upload) */
 .layer-panel-gj-controls {
     margin-top: 8px;
